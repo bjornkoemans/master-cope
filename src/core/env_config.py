@@ -1,4 +1,4 @@
-from display import print_colored, ColorPreset, RGBColor
+from .display import print_colored, ColorPreset, RGBColor
 from typing import Union, Any
 
 DEBUG = False
