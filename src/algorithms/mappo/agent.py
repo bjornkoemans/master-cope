@@ -84,9 +84,10 @@ class MAPPOAgent:
         }
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr_critic)
 
-        # Initialize models on CPU for simulation (will be moved to device during training)
-        self._models_on_cpu = False  # Track current location of models
-        self._move_models_to_cpu()  # Start with models on CPU for simulation
+        # Keep models on device for both inference and training (GPU optimization)
+        # No need to move between CPU and GPU
+        self._models_on_cpu = False  # Track that models are on device
+        print_colored(f"Models initialized and kept on {self.device}", "green")
 
         # Experience buffer
         self.buffer = {
@@ -108,9 +109,7 @@ class MAPPOAgent:
         actions = {}
         action_probs = {}
 
-        # Ensure models are on CPU for inference during episode collection
-        self._move_models_to_cpu()
-
+        # Models stay on device for inference (GPU optimization)
         with torch.no_grad():
             for agent_id, obs in observations.items():
                 if agent_id in self.actors:
@@ -135,13 +134,11 @@ class MAPPOAgent:
         # Get the reward from the last step
         reward = self.buffer["rewards"][-1] if self.buffer["rewards"] else None
 
-        # Ensure critic is on CPU for inference during episode collection
-        self._move_models_to_cpu()
-
+        # Critic stays on device for inference (GPU optimization)
         with torch.no_grad():
             value = self.critic(
                 obs_list, reward
-            ).item()  # Already on CPU since model is on CPU
+            ).item()
         return value
 
     def _compute_values_on_current_device(self, observations):
@@ -218,10 +215,8 @@ class MAPPOAgent:
         )
         update_start_time = time.perf_counter()
 
-        # Move models to device for training
-        self._move_models_to_device()
-
-        # Compute advantages and returns (using current device since models are now on GPU/MPS)
+        # Models are already on device (GPU optimization - no transfer needed)
+        # Compute advantages and returns
         self.compute_advantages_and_returns(use_current_device=True)
 
         # Get buffer data
@@ -463,8 +458,8 @@ class MAPPOAgent:
             "yellow",
         )
 
-        # Move models back to CPU for next simulation episodes
-        self._move_models_to_cpu()
+        # Models stay on device for next episodes (GPU optimization)
+        # No need to move back to CPU
 
         # Clear the buffer after updating
         self.buffer = {
@@ -507,8 +502,8 @@ class MAPPOAgent:
                 torch.load(f"{path}/actor_{agent_id}.pt", map_location=self.device)
             )
 
-        # After loading, move models to CPU for simulation
-        self._move_models_to_cpu()
+        # Models stay on device after loading (GPU optimization)
+        print_colored(f"Models loaded and kept on {self.device}", "green")
 
     def _move_models_to_cpu(self):
         """Move all models to CPU for inference during simulation."""

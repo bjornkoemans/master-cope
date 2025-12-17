@@ -42,6 +42,20 @@ def get_device():
         return torch.device("cpu")
 
 
+def print_gpu_memory():
+    """Print GPU memory usage if CUDA is available."""
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1e9
+        reserved = torch.cuda.memory_reserved() / 1e9
+        max_allocated = torch.cuda.max_memory_allocated() / 1e9
+        total = torch.cuda.get_device_properties(0).total_memory / 1e9
+        print_colored(
+            f"GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved, "
+            f"{max_allocated:.2f}GB peak, {total:.2f}GB total",
+            "cyan"
+        )
+
+
 def train_mappo(
     env, experiment_dir: str, total_training_episodes=50, policy_update_epochs=2, online_training=False
 ):
@@ -87,6 +101,9 @@ def train_mappo(
         batch_size=hp.BATCH_SIZE,
         device=device,
     )
+
+    # Print GPU memory usage after agent initialization
+    print_gpu_memory()
 
     # Use different trainer based on training mode
     if online_training:
