@@ -14,6 +14,17 @@ os.environ['OMP_NUM_THREADS'] = str(num_cpu_cores)
 os.environ['MKL_NUM_THREADS'] = str(num_cpu_cores)
 print(f"CPU Threading: Using {num_cpu_cores} threads for PyTorch/NumPy operations")
 
+# GPU Optimizations
+if torch.cuda.is_available():
+    # Enable cuDNN benchmark for faster convolutions (finds optimal algorithms)
+    torch.backends.cudnn.benchmark = True
+    # Enable TF32 for faster matrix multiplications on Ampere+ GPUs (optional, but safe)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    print(f"GPU Optimizations: cuDNN benchmark enabled, TF32 enabled")
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+
 import sys
 from pathlib import Path
 # Add parent directory to path to import from src
@@ -108,7 +119,9 @@ def train_mappo(
         gae_lambda=hp.GAE_LAMBDA,
         clip_param=hp.PPO_CLIP_PARAM,
         batch_size=hp.BATCH_SIZE,
+        mini_batch_size=hp.MINI_BATCH_SIZE,  # GPU-optimized mini-batch size
         device=device,
+        use_amp=True,  # Enable automatic mixed precision for faster training
     )
 
     # Print GPU memory usage after agent initialization
@@ -233,8 +246,10 @@ def evaluate_baselines(env, model_path=None, num_episodes=100):
             gae_lambda=hp.GAE_LAMBDA,
             clip_param=hp.PPO_CLIP_PARAM,
             batch_size=hp.BATCH_SIZE,
+            mini_batch_size=hp.MINI_BATCH_SIZE,
             num_epochs=hp.NUM_EPOCHS,
             device=get_device(),
+            use_amp=True,
         )
         mappo_agent.load_models(model_path)
     else:
@@ -251,8 +266,10 @@ def evaluate_baselines(env, model_path=None, num_episodes=100):
             gae_lambda=hp.GAE_LAMBDA,
             clip_param=hp.PPO_CLIP_PARAM,
             batch_size=hp.BATCH_SIZE,
+            mini_batch_size=hp.MINI_BATCH_SIZE,
             num_epochs=hp.NUM_EPOCHS,
             device=get_device(),
+            use_amp=True,
         )
 
     # Create evaluator
@@ -763,8 +780,10 @@ if __name__ == "__main__":
             gae_lambda=hp.GAE_LAMBDA,
             clip_param=hp.PPO_CLIP_PARAM,
             batch_size=hp.BATCH_SIZE,
+            mini_batch_size=hp.MINI_BATCH_SIZE,
             num_epochs=hp.NUM_EPOCHS,
             device=device,
+            use_amp=True,
         )
         agent.load_models(args.model_path)
 

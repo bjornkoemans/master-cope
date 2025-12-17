@@ -107,7 +107,7 @@ class ActorNetwork(nn.Module):
         return action_probs
 
     def forward_batch(self, obs_dicts, rewards=None):
-        """Batch forward pass for multiple observations."""
+        """Batch forward pass for multiple observations - GPU optimized."""
         # Get the current device of the model
         current_device = next(self.parameters()).device
 
@@ -122,25 +122,26 @@ class ActorNetwork(nn.Module):
                 if key in obs_dict:
                     # Handle different observation components
                     if isinstance(obs_dict[key], np.ndarray):
-                        # Convert to tensor efficiently
+                        # Convert to tensor efficiently - create directly on GPU
                         tensor_data = torch.from_numpy(
                             obs_dict[key].flatten().astype(np.float32)
-                        )
+                        ).to(current_device, non_blocking=True)
                         x_parts.append(tensor_data)
                     else:
+                        # Create directly on GPU
                         x_parts.append(
-                            torch.tensor([obs_dict[key]], dtype=torch.float32)
+                            torch.tensor([obs_dict[key]], dtype=torch.float32, device=current_device)
                         )
 
-            # Add current reward to input
+            # Add current reward to input - create directly on GPU
             reward = rewards[i] if rewards is not None else 0.0
-            x_parts.append(torch.tensor([reward], dtype=torch.float32))
+            x_parts.append(torch.tensor([reward], dtype=torch.float32, device=current_device))
 
-            # Concatenate and add to batch (still on CPU)
+            # Concatenate (already on GPU)
             batch_inputs.append(torch.cat(x_parts))
 
-        # Move entire batch to device at once
-        x_batch = torch.stack(batch_inputs).to(current_device)
+        # Stack batch (already on device)
+        x_batch = torch.stack(batch_inputs)
 
         # Process through deeper network with dropout (batch processing)
         x = F.relu(self.fc1(x_batch))
@@ -281,7 +282,7 @@ class CriticNetwork(nn.Module):
         return value
 
     def forward_batch(self, obs_dicts_batch, rewards=None):
-        """Batch forward pass for multiple observation sets."""
+        """Batch forward pass for multiple observation sets - GPU optimized."""
         # Get the current device of the model
         current_device = next(self.parameters()).device
 
@@ -298,31 +299,33 @@ class CriticNetwork(nn.Module):
                     if key in agent_obs:
                         # Handle different observation components
                         if isinstance(agent_obs[key], np.ndarray):
+                            # Create directly on GPU
                             tensor_data = torch.from_numpy(
                                 agent_obs[key].flatten().astype(np.float32)
-                            )
+                            ).to(current_device, non_blocking=True)
                             agent_parts.append(tensor_data)
                         else:
+                            # Create directly on GPU
                             agent_parts.append(
-                                torch.tensor([agent_obs[key]], dtype=torch.float32)
+                                torch.tensor([agent_obs[key]], dtype=torch.float32, device=current_device)
                             )
 
                 if agent_parts:
                     agent_input = torch.cat(agent_parts)
                     all_agent_inputs.append(agent_input)
 
-            # Concatenate all agents' observations for this sample
+            # Concatenate all agents' observations for this sample (already on GPU)
             x = torch.cat(all_agent_inputs)
 
-            # Add current reward to input
+            # Add current reward to input - create directly on GPU
             reward = rewards[i] if rewards is not None else 0.0
-            reward_tensor = torch.tensor([reward], dtype=torch.float32)
+            reward_tensor = torch.tensor([reward], dtype=torch.float32, device=current_device)
             x = torch.cat([x, reward_tensor])
 
             batch_inputs.append(x)
 
-        # Move entire batch to device at once and process
-        x_batch = torch.stack(batch_inputs).to(current_device)
+        # Stack batch (already on device)
+        x_batch = torch.stack(batch_inputs)
 
         # Process through deeper network with dropout (batch processing)
         x = F.relu(self.fc1(x_batch))

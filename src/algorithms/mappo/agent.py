@@ -7,7 +7,7 @@ from collections import deque
 import os
 
 from ...core.display import print_colored
-from ...core.hyperparameters import DROPOUT_RATE, WEIGHT_INIT
+from ...core.hyperparameters import DROPOUT_RATE, WEIGHT_INIT, MINI_BATCH_SIZE
 
 
 from .networks import ActorNetwork, CriticNetwork
@@ -24,10 +24,12 @@ class MAPPOAgent:
         gae_lambda=0.95,
         clip_param=0.1,
         batch_size=32768,
+        mini_batch_size=None,
         num_epochs=10,
         dropout_rate=None,
         weight_init=None,
         device=None,
+        use_amp=True,
     ):
         self.dropout_rate = dropout_rate if dropout_rate is not None else DROPOUT_RATE
         self.weight_init = weight_init if weight_init is not None else WEIGHT_INIT
@@ -37,7 +39,9 @@ class MAPPOAgent:
         self.gae_lambda = gae_lambda
         self.clip_param = clip_param
         self.batch_size = batch_size
+        self.mini_batch_size = mini_batch_size if mini_batch_size is not None else MINI_BATCH_SIZE
         self.num_epochs = num_epochs
+        self.use_amp = use_amp
 
         # Set device for GPU/MPS acceleration
         if device is None:
@@ -51,6 +55,15 @@ class MAPPOAgent:
             self.device = device
 
         print_colored(f"MAPPOAgent using device: {self.device}", "blue")
+
+        # Setup automatic mixed precision (AMP) for faster GPU training
+        self.scaler = None
+        if self.use_amp and self.device.type == "cuda":
+            self.scaler = torch.cuda.amp.GradScaler()
+            print_colored(f"Automatic Mixed Precision (AMP) enabled for faster training", "green")
+        elif self.use_amp and self.device.type != "cuda":
+            print_colored(f"AMP requested but not available on {self.device}, using FP32", "yellow")
+            self.use_amp = False
 
         # Create actor networks for each agent
         self.actors = {}
@@ -88,6 +101,7 @@ class MAPPOAgent:
         # No need to move between CPU and GPU
         self._models_on_cpu = False  # Track that models are on device
         print_colored(f"Models initialized and kept on {self.device}", "green")
+        print_colored(f"Mini-batch size: {self.mini_batch_size} (optimized for GPU)", "green")
 
         # Experience buffer
         self.buffer = {
@@ -287,16 +301,16 @@ class MAPPOAgent:
             total_actor_losses = {agent_id: 0.0 for agent_id in self.actors}
             num_batches = 0
             total_batches = (
-                len(observations) + self.batch_size - 1
-            ) // self.batch_size  # Ceiling division
+                len(observations) + self.mini_batch_size - 1
+            ) // self.mini_batch_size  # Ceiling division
 
             print_colored(
-                f"[{datetime.now().strftime('%H:%M:%S')}] Starting {total_batches} batches of size {self.batch_size}",
+                f"[{datetime.now().strftime('%H:%M:%S')}] Starting {total_batches} mini-batches of size {self.mini_batch_size}",
                 "blue",
             )
 
-            for start_idx in range(0, len(observations), self.batch_size):
-                end_idx = min(start_idx + self.batch_size, len(observations))
+            for start_idx in range(0, len(observations), self.mini_batch_size):
+                end_idx = min(start_idx + self.mini_batch_size, len(observations))
                 batch_indices = indices[start_idx:end_idx]
                 num_batches += 1
 
@@ -308,7 +322,7 @@ class MAPPOAgent:
                 batch_advantages = advantages_tensor[batch_indices]
                 batch_returns = returns_tensor[batch_indices]
 
-                # Update critic (centralized) - optimized batch processing
+                # Update critic (centralized) - optimized batch processing with AMP
                 if len(batch_obs) > 0:
                     # Prepare batch data for critic
                     batch_obs_lists = []
@@ -321,21 +335,40 @@ class MAPPOAgent:
                         batch_obs_lists.append(obs_list)
                         batch_rewards.append(reward)
 
-                    # Use batch forward pass for critic - single network call for entire batch
-                    value_preds = self.critic.forward_batch(
-                        batch_obs_lists, batch_rewards
-                    )
-                    critic_loss = (
-                        (value_preds.squeeze() - batch_returns.squeeze()) ** 2
-                    ).mean()
-                    total_critic_loss += critic_loss.item()
-
                     self.critic_optimizer.zero_grad()
-                    critic_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(
-                        self.critic.parameters(), max_norm=0.5
-                    )
-                    self.critic_optimizer.step()
+
+                    # Use AMP if available for faster training
+                    if self.use_amp and self.scaler is not None:
+                        with torch.cuda.amp.autocast():
+                            value_preds = self.critic.forward_batch(
+                                batch_obs_lists, batch_rewards
+                            )
+                            critic_loss = (
+                                (value_preds.squeeze() - batch_returns.squeeze()) ** 2
+                            ).mean()
+
+                        total_critic_loss += critic_loss.item()
+                        self.scaler.scale(critic_loss).backward()
+                        self.scaler.unscale_(self.critic_optimizer)
+                        torch.nn.utils.clip_grad_norm_(
+                            self.critic.parameters(), max_norm=0.5
+                        )
+                        self.scaler.step(self.critic_optimizer)
+                        self.scaler.update()
+                    else:
+                        value_preds = self.critic.forward_batch(
+                            batch_obs_lists, batch_rewards
+                        )
+                        critic_loss = (
+                            (value_preds.squeeze() - batch_returns.squeeze()) ** 2
+                        ).mean()
+                        total_critic_loss += critic_loss.item()
+
+                        critic_loss.backward()
+                        torch.nn.utils.clip_grad_norm_(
+                            self.critic.parameters(), max_norm=0.5
+                        )
+                        self.critic_optimizer.step()
 
                 # Update actors (decentralized) - optimized batch processing
                 for agent_id in self.actors:
@@ -379,53 +412,101 @@ class MAPPOAgent:
 
                     # Use batch forward pass for actor - single network call for entire batch
                     if batch_agent_obs:
-                        current_action_probs = actor.forward_batch(
-                            batch_agent_obs, batch_agent_rewards
-                        )
-
-                        # Filter out dummy entries
+                        # Filter out dummy entries first
                         agent_mask_tensor = torch.tensor(agent_mask, device=self.device)
                         if agent_mask_tensor.sum() > 0:
-                            # Only process entries where agent was actually present
-                            valid_indices = agent_mask_tensor.nonzero(as_tuple=True)[0]
-                            valid_current_probs = current_action_probs[valid_indices]
-                            valid_actions = batch_agent_actions[valid_indices]
-                            valid_old_probs = batch_old_action_probs[valid_indices]
-                            valid_advantages = batch_advantages[valid_indices]
-
-                            # Get probabilities for taken actions
-                            current_action_prob_taken = valid_current_probs.gather(
-                                1, valid_actions.unsqueeze(1)
-                            ).squeeze(1)
-                            old_action_prob_taken = valid_old_probs.gather(
-                                1, valid_actions.unsqueeze(1)
-                            ).squeeze(1)
-
-                            # Compute ratio
-                            ratio = current_action_prob_taken / (
-                                old_action_prob_taken + 1e-8
-                            )
-
-                            # Compute surrogate losses
-                            surrogate1 = ratio * valid_advantages
-                            surrogate2 = (
-                                torch.clamp(
-                                    ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
-                                )
-                                * valid_advantages
-                            )
-
-                            # Actor loss
-                            actor_loss = -torch.min(surrogate1, surrogate2).mean()
-                            total_actor_losses[agent_id] += actor_loss.item()
-
-                            # Update actor
                             optimizer.zero_grad()
-                            actor_loss.backward()
-                            torch.nn.utils.clip_grad_norm_(
-                                actor.parameters(), max_norm=0.5
-                            )
-                            optimizer.step()
+
+                            # Use AMP if available for faster training
+                            if self.use_amp and self.scaler is not None:
+                                with torch.cuda.amp.autocast():
+                                    current_action_probs = actor.forward_batch(
+                                        batch_agent_obs, batch_agent_rewards
+                                    )
+
+                                    # Only process entries where agent was actually present
+                                    valid_indices = agent_mask_tensor.nonzero(as_tuple=True)[0]
+                                    valid_current_probs = current_action_probs[valid_indices]
+                                    valid_actions = batch_agent_actions[valid_indices]
+                                    valid_old_probs = batch_old_action_probs[valid_indices]
+                                    valid_advantages = batch_advantages[valid_indices]
+
+                                    # Get probabilities for taken actions
+                                    current_action_prob_taken = valid_current_probs.gather(
+                                        1, valid_actions.unsqueeze(1)
+                                    ).squeeze(1)
+                                    old_action_prob_taken = valid_old_probs.gather(
+                                        1, valid_actions.unsqueeze(1)
+                                    ).squeeze(1)
+
+                                    # Compute ratio
+                                    ratio = current_action_prob_taken / (
+                                        old_action_prob_taken + 1e-8
+                                    )
+
+                                    # Compute surrogate losses
+                                    surrogate1 = ratio * valid_advantages
+                                    surrogate2 = (
+                                        torch.clamp(
+                                            ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
+                                        )
+                                        * valid_advantages
+                                    )
+
+                                    # Actor loss
+                                    actor_loss = -torch.min(surrogate1, surrogate2).mean()
+
+                                total_actor_losses[agent_id] += actor_loss.item()
+                                self.scaler.scale(actor_loss).backward()
+                                self.scaler.unscale_(optimizer)
+                                torch.nn.utils.clip_grad_norm_(
+                                    actor.parameters(), max_norm=0.5
+                                )
+                                self.scaler.step(optimizer)
+                                self.scaler.update()
+                            else:
+                                current_action_probs = actor.forward_batch(
+                                    batch_agent_obs, batch_agent_rewards
+                                )
+
+                                # Only process entries where agent was actually present
+                                valid_indices = agent_mask_tensor.nonzero(as_tuple=True)[0]
+                                valid_current_probs = current_action_probs[valid_indices]
+                                valid_actions = batch_agent_actions[valid_indices]
+                                valid_old_probs = batch_old_action_probs[valid_indices]
+                                valid_advantages = batch_advantages[valid_indices]
+
+                                # Get probabilities for taken actions
+                                current_action_prob_taken = valid_current_probs.gather(
+                                    1, valid_actions.unsqueeze(1)
+                                ).squeeze(1)
+                                old_action_prob_taken = valid_old_probs.gather(
+                                    1, valid_actions.unsqueeze(1)
+                                ).squeeze(1)
+
+                                # Compute ratio
+                                ratio = current_action_prob_taken / (
+                                    old_action_prob_taken + 1e-8
+                                )
+
+                                # Compute surrogate losses
+                                surrogate1 = ratio * valid_advantages
+                                surrogate2 = (
+                                    torch.clamp(
+                                        ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
+                                    )
+                                    * valid_advantages
+                                )
+
+                                # Actor loss
+                                actor_loss = -torch.min(surrogate1, surrogate2).mean()
+                                total_actor_losses[agent_id] += actor_loss.item()
+
+                                actor_loss.backward()
+                                torch.nn.utils.clip_grad_norm_(
+                                    actor.parameters(), max_norm=0.5
+                                )
+                                optimizer.step()
 
                 # Print progress less frequently now that batching is optimized
                 if (
