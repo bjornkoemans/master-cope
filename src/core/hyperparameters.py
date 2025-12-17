@@ -19,7 +19,7 @@ DROPOUT_RATE = 0.2
 # PPO parameters
 PPO_CLIP_PARAM = 0.2
 GAE_LAMBDA = 0.95
-BATCH_SIZE = 32768
+BATCH_SIZE = 16384
 NUM_EPOCHS = 10
 
 # Weight initialization
