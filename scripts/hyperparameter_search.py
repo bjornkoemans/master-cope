@@ -3,6 +3,7 @@
 Hyperparameter Search
 Automates hyperparameter optimization using grid or random search.
 Creates config files, trains models, and compares results.
+Supports parallel execution to utilize all CPU cores.
 """
 
 import argparse
@@ -15,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from itertools import product
 import random
+import multiprocessing as mp
+from functools import partial
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -222,40 +225,86 @@ def hyperparameter_search(
     print_colored(f"\n4. Running {len(combinations)} experiments...", "blue")
     print_colored("="*60, "yellow")
 
-    if parallel:
-        print_colored("⚠️  Parallel execution not yet implemented. Running sequentially.", "yellow")
-
     results = []
     successful_models = []
 
-    for i, (config_path, params) in enumerate(config_paths):
-        print_colored(f"\n[{i+1}/{len(combinations)}] Experiment {i+1}", "cyan")
-        print_colored(f"   Parameters: {params}", "blue")
+    if parallel:
+        # Parallel execution using multiprocessing
+        num_processes = min(mp.cpu_count(), len(combinations))
+        print_colored(f"   Running {len(combinations)} experiments in parallel using {num_processes} processes", "cyan")
+        print_colored(f"   Expected CPU utilization: {num_processes} cores @ ~100%", "green")
+        print_colored(f"   All experiments will share the GPU during policy updates", "green")
+        print_colored("="*60, "yellow")
 
-        exp_name = f"exp_{i+1:03d}"
-        success, model_path = run_experiment(
-            config_path=config_path,
-            data_file=data_file,
-            distributions_file=distributions_file,
-            output_dir=output_dir,
-            name=exp_name
-        )
+        # Create wrapper function with fixed arguments
+        def run_exp_wrapper(args):
+            i, config_path, params = args
+            exp_name = f"exp_{i+1:03d}"
+            print_colored(f"\n[Process {i+1}] Starting Experiment {i+1}", "cyan")
+            print_colored(f"[Process {i+1}] Parameters: {params}", "blue")
 
-        result = {
-            'experiment_id': i + 1,
-            'experiment_name': exp_name,
-            'config_path': config_path,
-            'parameters': params,
-            'success': success,
-            'model_path': model_path
-        }
-        results.append(result)
+            success, model_path = run_experiment(
+                config_path=config_path,
+                data_file=data_file,
+                distributions_file=distributions_file,
+                output_dir=output_dir,
+                name=exp_name
+            )
 
-        if success:
-            successful_models.append(model_path)
-            print_colored(f"   ✓ Training completed", "green")
-        else:
-            print_colored(f"   ✗ Training failed", "red")
+            result = {
+                'experiment_id': i + 1,
+                'experiment_name': exp_name,
+                'config_path': config_path,
+                'parameters': params,
+                'success': success,
+                'model_path': model_path
+            }
+
+            if success:
+                print_colored(f"[Process {i+1}] ✓ Training completed", "green")
+            else:
+                print_colored(f"[Process {i+1}] ✗ Training failed", "red")
+
+            return result
+
+        # Run experiments in parallel
+        with mp.Pool(processes=num_processes) as pool:
+            experiment_args = [(i, config_path, params) for i, (config_path, params) in enumerate(config_paths)]
+            results = pool.map(run_exp_wrapper, experiment_args)
+
+        # Extract successful models
+        successful_models = [r['model_path'] for r in results if r['success'] and r['model_path']]
+
+    else:
+        # Sequential execution (original code)
+        for i, (config_path, params) in enumerate(config_paths):
+            print_colored(f"\n[{i+1}/{len(combinations)}] Experiment {i+1}", "cyan")
+            print_colored(f"   Parameters: {params}", "blue")
+
+            exp_name = f"exp_{i+1:03d}"
+            success, model_path = run_experiment(
+                config_path=config_path,
+                data_file=data_file,
+                distributions_file=distributions_file,
+                output_dir=output_dir,
+                name=exp_name
+            )
+
+            result = {
+                'experiment_id': i + 1,
+                'experiment_name': exp_name,
+                'config_path': config_path,
+                'parameters': params,
+                'success': success,
+                'model_path': model_path
+            }
+            results.append(result)
+
+            if success:
+                successful_models.append(model_path)
+                print_colored(f"   ✓ Training completed", "green")
+            else:
+                print_colored(f"   ✗ Training failed", "red")
 
     print_colored("\n" + "="*60, "yellow")
 
