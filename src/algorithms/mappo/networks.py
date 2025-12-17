@@ -3,12 +3,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from gymnasium import spaces
+from ...core.hyperparameters import DROPOUT_RATE, WEIGHT_INIT
 
 
 class ActorNetwork(nn.Module):
-    def __init__(self, obs_space, action_space, hidden_size=128, device=None):
+    def __init__(self, obs_space, action_space, hidden_size=128, dropout_rate=None, weight_init=None, device=None):
         super(ActorNetwork, self).__init__()
         self.device = device if device is not None else torch.device("cpu")
+        self.dropout_rate = dropout_rate if dropout_rate is not None else DROPOUT_RATE
+        self.weight_init = weight_init if weight_init is not None else WEIGHT_INIT
 
         # Calculate input size from observation space
         input_size = 0
@@ -31,7 +34,7 @@ class ActorNetwork(nn.Module):
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, hidden_size)
-        self.dropout = nn.Dropout(p=0.2)
+        self.dropout = nn.Dropout(p=self.dropout_rate)
         # Action head for discrete action space
         self.action_head = nn.Linear(hidden_size, action_space.n)
 
@@ -39,10 +42,22 @@ class ActorNetwork(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        """Initialize network weights using Xavier initialization."""
+        """Initialize network weights using configured initialization method."""
         for module in self.modules():
             if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
+                if self.weight_init == "xavier_uniform":
+                    nn.init.xavier_uniform_(module.weight)
+                elif self.weight_init == "xavier_normal":
+                    nn.init.xavier_normal_(module.weight)
+                elif self.weight_init == "kaiming_uniform":
+                    nn.init.kaiming_uniform_(module.weight, nonlinearity='relu')
+                elif self.weight_init == "kaiming_normal":
+                    nn.init.kaiming_normal_(module.weight, nonlinearity='relu')
+                elif self.weight_init == "orthogonal":
+                    nn.init.orthogonal_(module.weight)
+                else:
+                    nn.init.xavier_uniform_(module.weight)  # fallback
+
                 if module.bias is not None:
                     nn.init.normal_(module.bias, 0, 0.01)
 
@@ -155,9 +170,11 @@ class ActorNetwork(nn.Module):
 
 
 class CriticNetwork(nn.Module):
-    def __init__(self, obs_space, n_agents, hidden_size=256, device=None):
+    def __init__(self, obs_space, n_agents, hidden_size=256, dropout_rate=None, weight_init=None, device=None):
         super(CriticNetwork, self).__init__()
         self.device = device if device is not None else torch.device("cpu")
+        self.dropout_rate = dropout_rate if dropout_rate is not None else DROPOUT_RATE
+        self.weight_init = weight_init if weight_init is not None else WEIGHT_INIT
 
         # For centralized critic, we combine observations from all agents
         # and potentially global state information
@@ -183,17 +200,29 @@ class CriticNetwork(nn.Module):
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, hidden_size)
-        self.dropout = nn.Dropout(p=0.2)
+        self.dropout = nn.Dropout(p=self.dropout_rate)
         self.value_head = nn.Linear(hidden_size, 1)
 
         # Initialize weights
         self._init_weights()
 
     def _init_weights(self):
-        """Initialize network weights using Xavier initialization."""
+        """Initialize network weights using configured initialization method."""
         for module in self.modules():
             if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
+                if self.weight_init == "xavier_uniform":
+                    nn.init.xavier_uniform_(module.weight)
+                elif self.weight_init == "xavier_normal":
+                    nn.init.xavier_normal_(module.weight)
+                elif self.weight_init == "kaiming_uniform":
+                    nn.init.kaiming_uniform_(module.weight, nonlinearity='relu')
+                elif self.weight_init == "kaiming_normal":
+                    nn.init.kaiming_normal_(module.weight, nonlinearity='relu')
+                elif self.weight_init == "orthogonal":
+                    nn.init.orthogonal_(module.weight)
+                else:
+                    nn.init.xavier_uniform_(module.weight)  # fallback
+
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
 

@@ -17,6 +17,7 @@ from src.algorithms.baselines.baselines import create_baseline_agents, BaselineE
 
 from src.core.config import config
 from src.core.display import print_colored
+from src.core import hyperparameters as hp
 from src.preprocessing.load_data import load_data, split_data
 from src.preprocessing.preprocessing import remove_short_cases
 from src.utils.duration_fitting import (
@@ -73,16 +74,17 @@ def train_mappo(
             "blue",
         )
 
-    # Initialize MAPPO agent with device
+    # Initialize MAPPO agent with hyperparameters from config
     mappo_agent = MAPPOAgent(
         env,
-        hidden_size=256,
-        lr_actor=0.0003,
-        lr_critic=0.0003,
-        gamma=0.99,
+        hidden_size=hp.ACTOR_HIDDEN_SIZE,
+        lr_actor=hp.LEARNING_RATE_ACTOR,
+        lr_critic=hp.LEARNING_RATE_CRITIC,
+        gamma=hp.GAMMA,
         num_epochs=policy_update_epochs,  # This is the PPO policy update epochs
-        gae_lambda=0.95,
-        clip_param=0.2,
+        gae_lambda=hp.GAE_LAMBDA,
+        clip_param=hp.PPO_CLIP_PARAM,
+        batch_size=hp.BATCH_SIZE,
         device=device,
     )
 
@@ -198,14 +200,14 @@ def evaluate_baselines(env, model_path=None, num_episodes=100):
         print_colored(f"Loading trained MAPPO model from {model_path}", "green")
         mappo_agent = MAPPOAgent(
             env=env,
-            hidden_size=256,
-            lr_actor=0.0003,
-            lr_critic=0.0003,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_param=0.2,
-            batch_size=1028,
-            num_epochs=100,
+            hidden_size=hp.ACTOR_HIDDEN_SIZE,
+            lr_actor=hp.LEARNING_RATE_ACTOR,
+            lr_critic=hp.LEARNING_RATE_CRITIC,
+            gamma=hp.GAMMA,
+            gae_lambda=hp.GAE_LAMBDA,
+            clip_param=hp.PPO_CLIP_PARAM,
+            batch_size=hp.BATCH_SIZE,
+            num_epochs=hp.NUM_EPOCHS,
             device=get_device(),
         )
         mappo_agent.load_models(model_path)
@@ -216,14 +218,14 @@ def evaluate_baselines(env, model_path=None, num_episodes=100):
         )
         mappo_agent = MAPPOAgent(
             env=env,
-            hidden_size=256,
-            lr_actor=0.0003,
-            lr_critic=0.0003,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_param=0.2,
-            batch_size=1028,
-            num_epochs=100,
+            hidden_size=hp.ACTOR_HIDDEN_SIZE,
+            lr_actor=hp.LEARNING_RATE_ACTOR,
+            lr_critic=hp.LEARNING_RATE_CRITIC,
+            gamma=hp.GAMMA,
+            gae_lambda=hp.GAE_LAMBDA,
+            clip_param=hp.PPO_CLIP_PARAM,
+            batch_size=hp.BATCH_SIZE,
+            num_epochs=hp.NUM_EPOCHS,
             device=get_device(),
         )
 
@@ -360,13 +362,13 @@ def train_qmix(env, experiment_dir: str, total_training_episodes=50, batch_size=
         "blue",
     )
 
-    # Initialize QMIX agent with device
+    # Initialize QMIX agent with hyperparameters from config
     qmix_agent = QMIXAgent(
         env,
         device=device,
-        lr=0.0005,
-        gamma=0.99,
-        epsilon=0.1,
+        lr=hp.QMIX_LEARNING_RATE,
+        gamma=hp.GAMMA,
+        epsilon=hp.QMIX_EPSILON,
     )
 
     # Initialize trainer
@@ -375,8 +377,8 @@ def train_qmix(env, experiment_dir: str, total_training_episodes=50, batch_size=
         qmix_agent,
         total_training_episodes=total_training_episodes,
         batch_size=batch_size,
-        buffer_size=10000,
-        target_update_interval=100,
+        buffer_size=hp.QMIX_BUFFER_SIZE,
+        target_update_interval=hp.QMIX_TARGET_UPDATE_INTERVAL,
     )
 
     # Start training
@@ -430,7 +432,7 @@ def main(args):
             train_env,
             experiment_dir,
             total_training_episodes=args.training_episodes,
-            batch_size=32,
+            batch_size=hp.QMIX_BATCH_SIZE,
         )
 
         # Save the trained agent
@@ -724,9 +726,20 @@ if __name__ == "__main__":
             pre_fitted_distributions=fitted_distributions,  # Use fitted distributions
         )
 
-        # Load trained agent with device
+        # Load trained agent with device and hyperparameters
         device = get_device()
-        agent = MAPPOAgent(env, device=device)
+        agent = MAPPOAgent(
+            env,
+            hidden_size=hp.ACTOR_HIDDEN_SIZE,
+            lr_actor=hp.LEARNING_RATE_ACTOR,
+            lr_critic=hp.LEARNING_RATE_CRITIC,
+            gamma=hp.GAMMA,
+            gae_lambda=hp.GAE_LAMBDA,
+            clip_param=hp.PPO_CLIP_PARAM,
+            batch_size=hp.BATCH_SIZE,
+            num_epochs=hp.NUM_EPOCHS,
+            device=device,
+        )
         agent.load_models(args.model_path)
 
         # Evaluate the agent and save logs

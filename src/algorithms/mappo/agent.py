@@ -7,6 +7,7 @@ from collections import deque
 import os
 
 from ...core.display import print_colored
+from ...core.hyperparameters import DROPOUT_RATE, WEIGHT_INIT
 
 
 from .networks import ActorNetwork, CriticNetwork
@@ -24,8 +25,12 @@ class MAPPOAgent:
         clip_param=0.1,
         batch_size=32768,
         num_epochs=10,
+        dropout_rate=None,
+        weight_init=None,
         device=None,
     ):
+        self.dropout_rate = dropout_rate if dropout_rate is not None else DROPOUT_RATE
+        self.weight_init = weight_init if weight_init is not None else WEIGHT_INIT
         self.env = env
         self.n_agents = len(env.agents)
         self.gamma = gamma
@@ -56,6 +61,8 @@ class MAPPOAgent:
                 obs_space,
                 action_space,
                 hidden_size=hidden_size,
+                dropout_rate=self.dropout_rate,
+                weight_init=self.weight_init,
                 device=self.device,
             ).to(self.device)
 
@@ -65,6 +72,8 @@ class MAPPOAgent:
             env.observation_space(first_agent.id),
             self.n_agents,
             hidden_size=2 * hidden_size,
+            dropout_rate=self.dropout_rate,
+            weight_init=self.weight_init,
             device=self.device,
         ).to(self.device)
 
