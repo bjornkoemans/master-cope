@@ -1,0 +1,12 @@
+# Experiment: High Learning Rate
+
+training:
+  episodes: 100
+  policy_update_epochs: 5
+
+learning:
+  lr_actor: 0.001
+  lr_critic: 0.001
+
+ppo:
+  clip_param: 0.3

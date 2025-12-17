@@ -1,0 +1,38 @@
+# Default MAPPO Hyperparameters Configuration
+# This config file allows you to override hyperparameters without changing code
+
+# Training settings
+training:
+  episodes: 50
+  policy_update_epochs: 5
+  online_training: false
+
+# Network architecture
+network:
+  actor_hidden_size: 128
+  critic_hidden_size: 256
+  dropout_rate: 0.2
+  num_hidden_layers: 3  # Currently hardcoded in networks.py
+  weight_init: "xavier_uniform"  # Options: xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal, orthogonal
+
+# Learning rates
+learning:
+  lr_actor: 0.0003
+  lr_critic: 0.0003
+
+# PPO parameters
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_param: 0.2
+  batch_size: 32768
+  num_epochs: 10
+
+# Evaluation
+evaluation:
+  episodes: 10
+  deterministic: true
+
+# Device
+device:
+  use_gpu: true  # Set to false to force CPU

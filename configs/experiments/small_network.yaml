@@ -1,0 +1,17 @@
+# Experiment: Small Network (faster training, less capacity)
+
+training:
+  episodes: 100
+  policy_update_epochs: 5
+
+network:
+  actor_hidden_size: 64
+  critic_hidden_size: 128
+  dropout_rate: 0.3
+
+learning:
+  lr_actor: 0.0005
+  lr_critic: 0.0005
+
+ppo:
+  batch_size: 16384

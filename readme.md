@@ -47,9 +47,22 @@ master-cope/
 │       └── duration_fitting.py   # Duration distribution fitting
 │
 ├── scripts/                       # Executable scripts
-│   ├── train.py                  # 🚀 HOOFDSCRIPT - Training en evaluatie
+│   ├── 1_prepare_data.py         # 📦 Fase 1 - Data preprocessing
+│   ├── 2_fit_distributions.py    # 📊 Fase 2 - Distribution fitting
+│   ├── 3_train.py                # 🚀 Fase 3 - Model training
+│   ├── 4_evaluate.py             # 📈 Fase 4 - Model evaluation
+│   ├── 5_compare_models.py       # 🔍 Fase 5 - Model comparison
+│   ├── hyperparameter_search.py  # 🔬 Geautomatiseerde hyperparameter search
+│   ├── train.py                  # 🚀 Legacy - Single script training
 │   ├── evaluate/                 # Evaluatie scripts
 │   └── demo/                     # Demo scripts
+│
+├── configs/                       # YAML configuratie bestanden
+│   ├── default.yaml              # Default hyperparameters
+│   └── experiments/              # Experiment-specifieke configs
+│       ├── small_network.yaml    # Klein netwerk configuratie
+│       ├── large_network.yaml    # Groot netwerk configuratie
+│       └── high_lr.yaml          # Hoge learning rate config
 │
 ├── analysis/                      # Analyse en visualisatie
 │   ├── notebooks/                # Jupyter notebooks voor analyse
@@ -70,9 +83,92 @@ master-cope/
 
 ## 🚀 Gebruik
 
-### 1. Training Run
+### Optie 1: Modular Pipeline (Aanbevolen voor Hyperparameter Tuning)
 
-Om het systeem te trainen op je event logs:
+De modular pipeline splitst training op in herbruikbare fasen, ideaal voor hyperparameter optimization:
+
+#### **Fase 1: Data Preprocessing** (eenmalig per dataset)
+```bash
+python scripts/1_prepare_data.py \
+  --input data/input/jouw_eventlog.csv \
+  --output data/processed/preprocessed_data.pkl
+```
+- Laadt event log
+- Verwijdert korte cases
+- Splitst in train/test sets (83/17)
+- Slaat op als pickle bestand
+
+#### **Fase 2: Distribution Fitting** (eenmalig per dataset)
+```bash
+python scripts/2_fit_distributions.py \
+  --data data/processed/preprocessed_data.pkl \
+  --output data/distributions/fitted_distributions.pkl
+```
+- Fit duration distributions op training data
+- Slaat gefitte distributies op voor hergebruik
+
+#### **Fase 3: Training** (run meerdere keren met verschillende configs)
+```bash
+# Met default configuratie
+python scripts/3_train.py \
+  --data data/processed/preprocessed_data.pkl \
+  --distributions data/distributions/fitted_distributions.pkl
+
+# Met custom config
+python scripts/3_train.py \
+  --data data/processed/preprocessed_data.pkl \
+  --distributions data/distributions/fitted_distributions.pkl \
+  --config configs/experiments/large_network.yaml \
+  --name "large_network_exp"
+```
+- Traint model met YAML configuratie
+- Slaat model op in `experiments/`
+
+#### **Fase 4: Evaluation**
+```bash
+python scripts/4_evaluate.py \
+  --model experiments/exp_20231215_120000/models \
+  --data data/processed/preprocessed_data.pkl \
+  --distributions data/distributions/fitted_distributions.pkl \
+  --episodes 20
+```
+- Evalueert trained model op test data
+- Genereert evaluation metrics en resultaten
+
+#### **Fase 5: Model Comparison**
+```bash
+python scripts/5_compare_models.py \
+  --models experiments/exp1/models experiments/exp2/models experiments/exp3/models \
+  --data data/processed/preprocessed_data.pkl \
+  --distributions data/distributions/fitted_distributions.pkl \
+  --episodes 20
+```
+- Vergelijkt meerdere models side-by-side
+- Genereert comparison table en relatieve performance
+
+#### **Hyperparameter Search**
+```bash
+# Grid search met default parameters
+python scripts/hyperparameter_search.py \
+  --data data/processed/preprocessed_data.pkl \
+  --distributions data/distributions/fitted_distributions.pkl \
+  --search-type grid
+
+# Random search met custom parameters
+python scripts/hyperparameter_search.py \
+  --data data/processed/preprocessed_data.pkl \
+  --distributions data/distributions/fitted_distributions.pkl \
+  --search-type random \
+  --param-config configs/param_search.json \
+  --n-trials 20
+```
+- Automatiseert hyperparameter optimization
+- Traint meerdere models met verschillende configuraties
+- Vergelijkt automatisch alle resultaten
+
+### Optie 2: Single-Script Training (Legacy)
+
+Voor snelle single runs:
 
 ```bash
 # Zet je event log in data/input/
@@ -80,23 +176,43 @@ Om het systeem te trainen op je event logs:
 python scripts/train.py
 ```
 
-### 2. Configuratie
+### Configuratie
 
-**Event Log Configuratie** (`src/core/config.py`):
+#### **YAML Config Bestanden** (`configs/`)
+- `configs/default.yaml`: Default hyperparameters
+- `configs/experiments/small_network.yaml`: Kleiner netwerk (sneller)
+- `configs/experiments/large_network.yaml`: Groter netwerk (meer capaciteit)
+- `configs/experiments/high_lr.yaml`: Hogere learning rate
+
+Config structuur:
+```yaml
+training:
+  episodes: 100
+  policy_update_epochs: 10
+
+network:
+  actor_hidden_size: 128
+  critic_hidden_size: 256
+  dropout_rate: 0.2
+  weight_init: "xavier_uniform"
+
+learning:
+  lr_actor: 0.0003
+  lr_critic: 0.0003
+  gamma: 0.99
+
+ppo:
+  clip_param: 0.2
+  batch_size: 32768
+```
+
+#### **Event Log Configuratie** (`src/core/config.py`):
 - Definieer kolom mappings voor je dataset
 - Specificeer case ID, activity, resource, timestamp kolommen
 
-**Environment Parameters** (`src/core/env_config.py`):
+#### **Environment Parameters** (`src/core/env_config.py`):
 - Debug settings
 - Simulatie parameters
-
-### 3. Preprocessing
-
-Data preprocessing stappen:
-1. Event logs laden vanuit `data/input/`
-2. Korte cases verwijderen (< 3 stappen)
-3. Train/test split
-4. Duration distributions fitten
 
 ## 🧠 Algoritmes
 
@@ -149,12 +265,36 @@ De environment is gebouwd met de **PettingZoo** library en is gebaseerd op het [
 
 ## 📝 Workflow
 
-1. **Data Laden** → Event logs uit `data/input/`
-2. **Preprocessing** → Cleaning, filtering, train/test split
-3. **Distribution Fitting** → Task duration distributions fitten
-4. **Training** → MAPPO/QMIX agent training
-5. **Evaluation** → Performance vergelijking met baselines
+### Modular Pipeline Workflow (Aanbevolen)
+
+```
+1_prepare_data.py         → data/processed/preprocessed_data.pkl
+         ↓
+2_fit_distributions.py    → data/distributions/fitted_distributions.pkl
+         ↓
+3_train.py (meerdere runs met verschillende configs)
+         ↓                ↓                ↓
+    model_1/         model_2/         model_3/
+         ↓                ↓                ↓
+4_evaluate.py        4_evaluate.py    4_evaluate.py
+         ↓                ↓                ↓
+         └────────────────┴────────────────┘
+                         ↓
+                5_compare_models.py
+                         ↓
+            📊 Best model selectie
+```
+
+### Stappen:
+
+1. **Data Preprocessing** (1x per dataset) → Event logs preprocessen en splitsen
+2. **Distribution Fitting** (1x per dataset) → Task duration distributions fitten
+3. **Training** (Nx per experiment) → Meerdere models trainen met verschillende configs
+4. **Evaluation** → Individuele model performance evalueren
+5. **Comparison** → Alle models vergelijken en beste selecteren
 6. **Analyse** → Resultaten visualiseren en interpreteren
+
+**Voordeel**: Fase 1 en 2 hoeven maar 1x uitgevoerd te worden. Fase 3 kan parallel voor meerdere hyperparameter configuraties, wat hyperparameter tuning veel efficiënter maakt.
 
 ## 🎓 Master Thesis Context
 
