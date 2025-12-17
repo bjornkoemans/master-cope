@@ -20,7 +20,7 @@ DROPOUT_RATE = 0.2
 PPO_CLIP_PARAM = 0.2
 GAE_LAMBDA = 0.95
 BATCH_SIZE = 16384  # Total experience buffer size
-MINI_BATCH_SIZE = 512  # Mini-batch size for GPU training (optimized for GTX 1060)
+MINI_BATCH_SIZE = 2048  # Mini-batch size for GPU training (optimized for GTX 1060)
 NUM_EPOCHS = 10
 
 # Weight initialization
