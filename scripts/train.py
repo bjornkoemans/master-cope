@@ -5,6 +5,15 @@ import os
 from datetime import datetime
 import torch
 
+# Set number of threads for CPU operations
+# Use all available CPU cores for PyTorch and NumPy operations
+num_cpu_cores = os.cpu_count() or 4
+torch.set_num_threads(num_cpu_cores)
+torch.set_num_interop_threads(num_cpu_cores)
+os.environ['OMP_NUM_THREADS'] = str(num_cpu_cores)
+os.environ['MKL_NUM_THREADS'] = str(num_cpu_cores)
+print(f"CPU Threading: Using {num_cpu_cores} threads for PyTorch/NumPy operations")
+
 import sys
 from pathlib import Path
 # Add parent directory to path to import from src
