@@ -1,5 +1,5 @@
 config: dict[str, str] = {
-    "input_filename": "LoanApp.csv",
+    "input_filename": "train_preprocessed.csv",
     "case_id_col": "case_id",
     "resource_id_col": "resource",
     "activity_col": "activity_name",
