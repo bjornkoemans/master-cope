@@ -1,1 +1,0 @@
-"""Master thesis MARL resource allocation system."""
