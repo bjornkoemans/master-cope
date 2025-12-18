@@ -1,6 +1,3 @@
 __pycache__
 .mypy_cache
-input
 models
-data
-/experiments
