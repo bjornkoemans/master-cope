@@ -86,6 +86,8 @@ def train_mappo(
         clip_param=hp.PPO_CLIP_PARAM,
         batch_size=hp.BATCH_SIZE,
         device=device,
+        use_mixed_precision=hp.USE_MIXED_PRECISION,
+        auto_batch_size=hp.AUTO_BATCH_SIZE,
     )
 
     # Use different trainer based on training mode
@@ -209,6 +211,8 @@ def evaluate_baselines(env, model_path=None, num_episodes=100):
             batch_size=hp.BATCH_SIZE,
             num_epochs=hp.NUM_EPOCHS,
             device=get_device(),
+            use_mixed_precision=hp.USE_MIXED_PRECISION,
+            auto_batch_size=hp.AUTO_BATCH_SIZE,
         )
         mappo_agent.load_models(model_path)
     else:
@@ -227,6 +231,8 @@ def evaluate_baselines(env, model_path=None, num_episodes=100):
             batch_size=hp.BATCH_SIZE,
             num_epochs=hp.NUM_EPOCHS,
             device=get_device(),
+            use_mixed_precision=hp.USE_MIXED_PRECISION,
+            auto_batch_size=hp.AUTO_BATCH_SIZE,
         )
 
     # Create evaluator
@@ -739,6 +745,8 @@ if __name__ == "__main__":
             batch_size=hp.BATCH_SIZE,
             num_epochs=hp.NUM_EPOCHS,
             device=device,
+            use_mixed_precision=hp.USE_MIXED_PRECISION,
+            auto_batch_size=hp.AUTO_BATCH_SIZE,
         )
         agent.load_models(args.model_path)
 

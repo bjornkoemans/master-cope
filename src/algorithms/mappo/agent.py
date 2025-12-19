@@ -8,7 +8,13 @@ import os
 
 from ...core.display import print_colored
 from ...core.hyperparameters import DROPOUT_RATE, WEIGHT_INIT
-
+from ...utils.gpu_utils import (
+    get_optimal_batch_size,
+    setup_mixed_precision,
+    print_gpu_utilization,
+    optimize_for_h200,
+    estimate_model_size,
+)
 
 from .networks import ActorNetwork, CriticNetwork
 
@@ -28,6 +34,8 @@ class MAPPOAgent:
         dropout_rate=None,
         weight_init=None,
         device=None,
+        use_mixed_precision=True,
+        auto_batch_size=True,
     ):
         self.dropout_rate = dropout_rate if dropout_rate is not None else DROPOUT_RATE
         self.weight_init = weight_init if weight_init is not None else WEIGHT_INIT
@@ -36,8 +44,10 @@ class MAPPOAgent:
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.clip_param = clip_param
+        self.base_batch_size = batch_size  # Store original for auto-sizing
         self.batch_size = batch_size
         self.num_epochs = num_epochs
+        self.auto_batch_size = auto_batch_size
 
         # Set device for GPU/MPS acceleration
         if device is None:
@@ -51,6 +61,16 @@ class MAPPOAgent:
             self.device = device
 
         print_colored(f"MAPPOAgent using device: {self.device}", "blue")
+
+        # Apply H200-specific optimizations
+        if self.device.type == "cuda":
+            opt_result = optimize_for_h200(self.device)
+            if opt_result.get("optimized"):
+                print_colored(f"✓ H200 optimizations enabled (TF32: {opt_result.get('tf32_enabled')})", "green")
+
+        # Setup mixed precision training
+        self.scaler, self.amp_dtype = setup_mixed_precision(self.device, use_mixed_precision)
+        self.use_mixed_precision = (self.scaler is not None or self.amp_dtype != torch.float32)
 
         # Create actor networks for each agent
         self.actors = {}
@@ -84,9 +104,14 @@ class MAPPOAgent:
         }
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr_critic)
 
-        # Initialize models on CPU for simulation (will be moved to device during training)
-        self._models_on_cpu = False  # Track current location of models
-        self._move_models_to_cpu()  # Start with models on CPU for simulation
+        # Estimate total model size for batch sizing
+        total_model_size = sum(estimate_model_size(actor) for actor in self.actors.values())
+        total_model_size += estimate_model_size(self.critic)
+        self.model_size_mb = total_model_size
+        print_colored(f"Total model size: {total_model_size:.2f} MB", "blue")
+
+        # Models stay on device (no CPU transfers!)
+        print_colored(f"Models will remain on {self.device} for both inference and training", "green")
 
         # Experience buffer
         self.buffer = {
@@ -108,9 +133,6 @@ class MAPPOAgent:
         actions = {}
         action_probs = {}
 
-        # Ensure models are on CPU for inference during episode collection
-        self._move_models_to_cpu()
-
         with torch.no_grad():
             for agent_id, obs in observations.items():
                 if agent_id in self.actors:
@@ -121,10 +143,9 @@ class MAPPOAgent:
                     action, probs = self.actors[agent_id].act(
                         obs, reward, deterministic
                     )
-                    actions[agent_id] = action
-                    action_probs[agent_id] = (
-                        probs  # Already on CPU since model is on CPU
-                    )
+                    # Only transfer action and probs to CPU (small data)
+                    actions[agent_id] = action  # action is already int
+                    action_probs[agent_id] = probs.cpu() if isinstance(probs, torch.Tensor) else probs
 
         return actions, action_probs
 
@@ -135,25 +156,10 @@ class MAPPOAgent:
         # Get the reward from the last step
         reward = self.buffer["rewards"][-1] if self.buffer["rewards"] else None
 
-        # Ensure critic is on CPU for inference during episode collection
-        self._move_models_to_cpu()
-
-        with torch.no_grad():
-            value = self.critic(
-                obs_list, reward
-            ).item()  # Already on CPU since model is on CPU
-        return value
-
-    def _compute_values_on_current_device(self, observations):
-        """Compute values using the critic network on its current device (for use during training)."""
-        # Convert observations dict to list in agent order
-        obs_list = [observations[agent.id] for agent in self.env.agents]
-        # Get the reward from the last step
-        reward = self.buffer["rewards"][-1] if self.buffer["rewards"] else None
-
         with torch.no_grad():
             value = self.critic(obs_list, reward).item()
         return value
+
 
     def store_experience(self, obs, actions, action_probs, rewards, dones, values):
         """Store experience in the buffer."""
@@ -170,7 +176,7 @@ class MAPPOAgent:
             actor.reset_history()
         self.critic.reset_history()
 
-    def compute_advantages_and_returns(self, use_current_device=False):
+    def compute_advantages_and_returns(self):
         """Compute GAE advantages and returns for stored trajectories."""
         values = np.array(self.buffer["values"])
         rewards = np.array(self.buffer["rewards"])
@@ -178,12 +184,7 @@ class MAPPOAgent:
 
         # Add a final value estimate for bootstrapping
         last_obs = self.buffer["obs"][-1]
-        if use_current_device:
-            # During training, use the device where models currently are
-            last_value = self._compute_values_on_current_device(last_obs)
-        else:
-            # During normal execution, ensure models are on CPU
-            last_value = self.compute_values(last_obs)
+        last_value = self.compute_values(last_obs)
         values = np.append(values, last_value)
 
         # Initialize advantages and returns
@@ -218,11 +219,26 @@ class MAPPOAgent:
         )
         update_start_time = time.perf_counter()
 
-        # Move models to device for training
-        self._move_models_to_device()
+        # Print GPU utilization before training
+        if self.device.type == "cuda":
+            print_gpu_utilization(self.device)
 
-        # Compute advantages and returns (using current device since models are now on GPU/MPS)
-        self.compute_advantages_and_returns(use_current_device=True)
+        # Compute advantages and returns
+        self.compute_advantages_and_returns()
+
+        num_samples = len(self.buffer["obs"])
+
+        # Auto-adjust batch size based on episode length and GPU memory
+        if self.auto_batch_size:
+            self.batch_size = get_optimal_batch_size(
+                num_samples=num_samples,
+                device=self.device,
+                model_size_mb=self.model_size_mb,
+            )
+            print_colored(
+                f"Auto-adjusted batch size: {self.batch_size} (for {num_samples} samples)",
+                "cyan",
+            )
 
         # Get buffer data
         observations = self.buffer["obs"]
@@ -326,21 +342,49 @@ class MAPPOAgent:
                         batch_obs_lists.append(obs_list)
                         batch_rewards.append(reward)
 
-                    # Use batch forward pass for critic - single network call for entire batch
-                    value_preds = self.critic.forward_batch(
-                        batch_obs_lists, batch_rewards
-                    )
-                    critic_loss = (
-                        (value_preds.squeeze() - batch_returns.squeeze()) ** 2
-                    ).mean()
-                    total_critic_loss += critic_loss.item()
-
                     self.critic_optimizer.zero_grad()
-                    critic_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(
-                        self.critic.parameters(), max_norm=0.5
-                    )
-                    self.critic_optimizer.step()
+
+                    # Use mixed precision if enabled
+                    if self.use_mixed_precision and self.device.type == "cuda":
+                        with torch.cuda.amp.autocast(dtype=self.amp_dtype):
+                            value_preds = self.critic.forward_batch(
+                                batch_obs_lists, batch_rewards
+                            )
+                            critic_loss = (
+                                (value_preds.squeeze() - batch_returns.squeeze()) ** 2
+                            ).mean()
+
+                        # Scale loss for FP16 if using scaler
+                        if self.scaler is not None:
+                            self.scaler.scale(critic_loss).backward()
+                            self.scaler.unscale_(self.critic_optimizer)
+                            torch.nn.utils.clip_grad_norm_(
+                                self.critic.parameters(), max_norm=0.5
+                            )
+                            self.scaler.step(self.critic_optimizer)
+                            self.scaler.update()
+                        else:
+                            # BF16 doesn't need scaling
+                            critic_loss.backward()
+                            torch.nn.utils.clip_grad_norm_(
+                                self.critic.parameters(), max_norm=0.5
+                            )
+                            self.critic_optimizer.step()
+                    else:
+                        # Standard FP32 training
+                        value_preds = self.critic.forward_batch(
+                            batch_obs_lists, batch_rewards
+                        )
+                        critic_loss = (
+                            (value_preds.squeeze() - batch_returns.squeeze()) ** 2
+                        ).mean()
+                        critic_loss.backward()
+                        torch.nn.utils.clip_grad_norm_(
+                            self.critic.parameters(), max_norm=0.5
+                        )
+                        self.critic_optimizer.step()
+
+                    total_critic_loss += critic_loss.item()
 
                 # Update actors (decentralized) - optimized batch processing
                 for agent_id in self.actors:
@@ -384,53 +428,104 @@ class MAPPOAgent:
 
                     # Use batch forward pass for actor - single network call for entire batch
                     if batch_agent_obs:
-                        current_action_probs = actor.forward_batch(
-                            batch_agent_obs, batch_agent_rewards
-                        )
-
-                        # Filter out dummy entries
+                        # Filter out dummy entries first
                         agent_mask_tensor = torch.tensor(agent_mask, device=self.device)
                         if agent_mask_tensor.sum() > 0:
-                            # Only process entries where agent was actually present
-                            valid_indices = agent_mask_tensor.nonzero(as_tuple=True)[0]
-                            valid_current_probs = current_action_probs[valid_indices]
-                            valid_actions = batch_agent_actions[valid_indices]
-                            valid_old_probs = batch_old_action_probs[valid_indices]
-                            valid_advantages = batch_advantages[valid_indices]
-
-                            # Get probabilities for taken actions
-                            current_action_prob_taken = valid_current_probs.gather(
-                                1, valid_actions.unsqueeze(1)
-                            ).squeeze(1)
-                            old_action_prob_taken = valid_old_probs.gather(
-                                1, valid_actions.unsqueeze(1)
-                            ).squeeze(1)
-
-                            # Compute ratio
-                            ratio = current_action_prob_taken / (
-                                old_action_prob_taken + 1e-8
-                            )
-
-                            # Compute surrogate losses
-                            surrogate1 = ratio * valid_advantages
-                            surrogate2 = (
-                                torch.clamp(
-                                    ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
-                                )
-                                * valid_advantages
-                            )
-
-                            # Actor loss
-                            actor_loss = -torch.min(surrogate1, surrogate2).mean()
-                            total_actor_losses[agent_id] += actor_loss.item()
-
-                            # Update actor
                             optimizer.zero_grad()
-                            actor_loss.backward()
-                            torch.nn.utils.clip_grad_norm_(
-                                actor.parameters(), max_norm=0.5
-                            )
-                            optimizer.step()
+
+                            # Use mixed precision if enabled
+                            if self.use_mixed_precision and self.device.type == "cuda":
+                                with torch.cuda.amp.autocast(dtype=self.amp_dtype):
+                                    current_action_probs = actor.forward_batch(
+                                        batch_agent_obs, batch_agent_rewards
+                                    )
+
+                                    # Only process entries where agent was actually present
+                                    valid_indices = agent_mask_tensor.nonzero(as_tuple=True)[0]
+                                    valid_current_probs = current_action_probs[valid_indices]
+                                    valid_actions = batch_agent_actions[valid_indices]
+                                    valid_old_probs = batch_old_action_probs[valid_indices]
+                                    valid_advantages = batch_advantages[valid_indices]
+
+                                    # Get probabilities for taken actions
+                                    current_action_prob_taken = valid_current_probs.gather(
+                                        1, valid_actions.unsqueeze(1)
+                                    ).squeeze(1)
+                                    old_action_prob_taken = valid_old_probs.gather(
+                                        1, valid_actions.unsqueeze(1)
+                                    ).squeeze(1)
+
+                                    # Compute ratio
+                                    ratio = current_action_prob_taken / (
+                                        old_action_prob_taken + 1e-8
+                                    )
+
+                                    # Compute surrogate losses
+                                    surrogate1 = ratio * valid_advantages
+                                    surrogate2 = (
+                                        torch.clamp(
+                                            ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
+                                        )
+                                        * valid_advantages
+                                    )
+
+                                    # Actor loss
+                                    actor_loss = -torch.min(surrogate1, surrogate2).mean()
+
+                                # Scale and backward
+                                if self.scaler is not None:
+                                    self.scaler.scale(actor_loss).backward()
+                                    self.scaler.unscale_(optimizer)
+                                    torch.nn.utils.clip_grad_norm_(
+                                        actor.parameters(), max_norm=0.5
+                                    )
+                                    self.scaler.step(optimizer)
+                                    self.scaler.update()
+                                else:
+                                    actor_loss.backward()
+                                    torch.nn.utils.clip_grad_norm_(
+                                        actor.parameters(), max_norm=0.5
+                                    )
+                                    optimizer.step()
+                            else:
+                                # Standard FP32 training
+                                current_action_probs = actor.forward_batch(
+                                    batch_agent_obs, batch_agent_rewards
+                                )
+
+                                valid_indices = agent_mask_tensor.nonzero(as_tuple=True)[0]
+                                valid_current_probs = current_action_probs[valid_indices]
+                                valid_actions = batch_agent_actions[valid_indices]
+                                valid_old_probs = batch_old_action_probs[valid_indices]
+                                valid_advantages = batch_advantages[valid_indices]
+
+                                current_action_prob_taken = valid_current_probs.gather(
+                                    1, valid_actions.unsqueeze(1)
+                                ).squeeze(1)
+                                old_action_prob_taken = valid_old_probs.gather(
+                                    1, valid_actions.unsqueeze(1)
+                                ).squeeze(1)
+
+                                ratio = current_action_prob_taken / (
+                                    old_action_prob_taken + 1e-8
+                                )
+
+                                surrogate1 = ratio * valid_advantages
+                                surrogate2 = (
+                                    torch.clamp(
+                                        ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
+                                    )
+                                    * valid_advantages
+                                )
+
+                                actor_loss = -torch.min(surrogate1, surrogate2).mean()
+                                actor_loss.backward()
+                                torch.nn.utils.clip_grad_norm_(
+                                    actor.parameters(), max_norm=0.5
+                                )
+                                optimizer.step()
+
+                            total_actor_losses[agent_id] += actor_loss.item()
 
                 # Print progress less frequently now that batching is optimized
                 if (
@@ -463,8 +558,9 @@ class MAPPOAgent:
             "yellow",
         )
 
-        # Move models back to CPU for next simulation episodes
-        self._move_models_to_cpu()
+        # Print GPU utilization after training
+        if self.device.type == "cuda":
+            print_gpu_utilization(self.device)
 
         # Clear the buffer after updating
         self.buffer = {
@@ -507,47 +603,4 @@ class MAPPOAgent:
                 torch.load(f"{path}/actor_{agent_id}.pt", map_location=self.device)
             )
 
-        # After loading, move models to CPU for simulation
-        self._move_models_to_cpu()
-
-    def _move_models_to_cpu(self):
-        """Move all models to CPU for inference during simulation."""
-        if not hasattr(self, "_models_on_cpu") or not self._models_on_cpu:
-            print_colored(
-                f"[{datetime.now().strftime('%H:%M:%S')}] Moving models to CPU for inference...",
-                "cyan",
-            )
-            start_time = time.perf_counter()
-            for actor in self.actors.values():
-                actor.to(torch.device("cpu"))
-            self.critic.to(torch.device("cpu"))
-            transfer_time = time.perf_counter() - start_time
-            print_colored(
-                f"[{datetime.now().strftime('%H:%M:%S')}] Models moved to CPU in {transfer_time:.3f}s",
-                "cyan",
-            )
-            self._models_on_cpu = True
-
-    def _move_models_to_device(self):
-        """Move all models to GPU/MPS device for training."""
-        if not hasattr(self, "_models_on_cpu") or self._models_on_cpu:
-            print_colored(
-                f"[{datetime.now().strftime('%H:%M:%S')}] Moving models to {self.device} for training...",
-                "cyan",
-            )
-            start_time = time.perf_counter()
-            for actor in self.actors.values():
-                actor.to(self.device)
-            self.critic.to(self.device)
-            transfer_time = time.perf_counter() - start_time
-            print_colored(
-                f"[{datetime.now().strftime('%H:%M:%S')}] Models moved to {self.device} in {transfer_time:.3f}s",
-                "cyan",
-            )
-            self._models_on_cpu = False
-
-    def _ensure_optimizers_on_device(self):
-        """Ensure optimizer states are on the correct device."""
-        # The optimizers will automatically move their states when the parameters move
-        # This method exists for potential future use if manual intervention is needed
-        pass
+        print_colored(f"Models loaded and ready on {self.device}", "green")

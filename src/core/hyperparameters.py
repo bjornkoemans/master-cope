@@ -19,7 +19,17 @@ DROPOUT_RATE = 0.2
 # PPO parameters
 PPO_CLIP_PARAM = 0.2
 GAE_LAMBDA = 0.95
-BATCH_SIZE = 32768
+
+# Batch size configuration
+# Note: When AUTO_BATCH_SIZE=True, this serves as a fallback/max value
+# The actual batch size will be automatically determined based on:
+# - Number of samples in episode
+# - Available GPU memory
+# - Model size
+BATCH_SIZE = 32768  # Fallback value
+AUTO_BATCH_SIZE = True  # Enable automatic batch size optimization
+
+# Training epochs (how many times to iterate over collected data)
 NUM_EPOCHS = 10
 
 # Weight initialization
@@ -29,6 +39,10 @@ WEIGHT_INIT = "xavier_uniform"
 # Training settings
 DEFAULT_TRAINING_EPISODES = 50
 DEFAULT_POLICY_UPDATE_EPOCHS = 5
+
+# GPU Optimization settings
+USE_MIXED_PRECISION = True  # Enable FP16/BF16 training on compatible GPUs
+# Mixed precision provides 2-3x speedup on NVIDIA H200, A100, and newer GPUs
 
 # QMIX specific parameters
 QMIX_LEARNING_RATE = 5e-4
