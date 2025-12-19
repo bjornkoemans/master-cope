@@ -110,8 +110,20 @@ class MAPPOAgent:
         self.model_size_mb = total_model_size
         print_colored(f"Total model size: {total_model_size:.2f} MB", "blue")
 
-        # Models stay on device (no CPU transfers!)
-        print_colored(f"Models will remain on {self.device} for both inference and training", "green")
+        # Hybrid approach: CPU for inference, GPU for training
+        self.inference_device = torch.device("cpu")  # Always use CPU for fast single-observation inference
+        self.training_device = self.device  # Use specified device for training
+
+        if self.training_device.type == "cuda":
+            print_colored(f"Hybrid mode: CPU inference (fast single obs) + GPU training (fast batches)", "green")
+            # Start with models on CPU for inference
+            for actor in self.actors.values():
+                actor.to(self.inference_device)
+            self.critic.to(self.inference_device)
+        else:
+            # For CPU/MPS, no need for hybrid
+            print_colored(f"Models will remain on {self.device} for both inference and training", "green")
+            self.inference_device = self.device
 
         # Experience buffer
         self.buffer = {
@@ -133,6 +145,7 @@ class MAPPOAgent:
         actions = {}
         action_probs = {}
 
+        # Models are already on inference_device (CPU for CUDA training)
         with torch.no_grad():
             for agent_id, obs in observations.items():
                 if agent_id in self.actors:
@@ -143,9 +156,8 @@ class MAPPOAgent:
                     action, probs = self.actors[agent_id].act(
                         obs, reward, deterministic
                     )
-                    # Only transfer action and probs to CPU (small data)
                     actions[agent_id] = action  # action is already int
-                    action_probs[agent_id] = probs.cpu() if isinstance(probs, torch.Tensor) else probs
+                    action_probs[agent_id] = probs  # Already on CPU
 
         return actions, action_probs
 
@@ -156,6 +168,7 @@ class MAPPOAgent:
         # Get the reward from the last step
         reward = self.buffer["rewards"][-1] if self.buffer["rewards"] else None
 
+        # Critic is already on inference_device (CPU for CUDA training)
         with torch.no_grad():
             value = self.critic(obs_list, reward).item()
         return value
@@ -215,7 +228,16 @@ class MAPPOAgent:
 
         update_start_time = time.perf_counter()
 
-        # Compute advantages and returns
+        # Move models to training device (GPU) if using hybrid mode
+        if self.training_device != self.inference_device:
+            transfer_start = time.perf_counter()
+            for actor in self.actors.values():
+                actor.to(self.training_device)
+            self.critic.to(self.training_device)
+            transfer_time = time.perf_counter() - transfer_start
+            print_colored(f"  Transferred models to GPU in {transfer_time:.2f}s", "cyan")
+
+        # Compute advantages and returns (now on training device)
         self.compute_advantages_and_returns()
 
         num_samples = len(self.buffer["obs"])
@@ -243,9 +265,9 @@ class MAPPOAgent:
         advantages = np.array(advantages)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # Convert data to tensors and move to device
-        advantages_tensor = torch.FloatTensor(advantages).to(self.device)
-        returns_tensor = torch.FloatTensor(returns).to(self.device)
+        # Convert data to tensors and move to training device
+        advantages_tensor = torch.FloatTensor(advantages).to(self.training_device)
+        returns_tensor = torch.FloatTensor(returns).to(self.training_device)
 
         # Prepare action and action probability tensors
         action_tensors = {}
@@ -265,10 +287,10 @@ class MAPPOAgent:
                         torch.ones(self.actors[agent_id].action_head.out_features)
                     )
 
-            action_tensors[agent_id] = torch.LongTensor(agent_actions).to(self.device)
-            # Stack old action probabilities and move to device
+            action_tensors[agent_id] = torch.LongTensor(agent_actions).to(self.training_device)
+            # Stack old action probabilities and move to training device
             old_action_prob_tensors[agent_id] = torch.stack(agent_old_probs).to(
-                self.device
+                self.training_device
             )
 
         # Reset history before batch processing
@@ -281,7 +303,7 @@ class MAPPOAgent:
             epoch_start_time = time.perf_counter()
 
             # Create random permutation for mini-batching
-            indices = torch.randperm(len(observations), device=self.device)
+            indices = torch.randperm(len(observations), device=self.training_device)
 
             total_critic_loss = 0.0
             total_actor_losses = {agent_id: 0.0 for agent_id in self.actors}
@@ -403,7 +425,7 @@ class MAPPOAgent:
                     # Use batch forward pass for actor - single network call for entire batch
                     if batch_agent_obs:
                         # Filter out dummy entries first
-                        agent_mask_tensor = torch.tensor(agent_mask, device=self.device)
+                        agent_mask_tensor = torch.tensor(agent_mask, device=self.training_device)
                         if agent_mask_tensor.sum() > 0:
                             optimizer.zero_grad()
 
@@ -508,6 +530,15 @@ class MAPPOAgent:
                 "white",
             )
 
+        # Move models back to inference device (CPU) if using hybrid mode
+        if self.training_device != self.inference_device:
+            transfer_start = time.perf_counter()
+            for actor in self.actors.values():
+                actor.to(self.inference_device)
+            self.critic.to(self.inference_device)
+            transfer_time = time.perf_counter() - transfer_start
+            print_colored(f"  Transferred models back to CPU in {transfer_time:.2f}s", "cyan")
+
         # Clear the buffer after updating
         self.buffer = {
             "obs": [],
@@ -538,15 +569,23 @@ class MAPPOAgent:
 
     def load_models(self, path):
         """Load model weights from the specified path."""
+        # Load to inference device (CPU for hybrid mode)
+        load_device = self.inference_device if hasattr(self, 'inference_device') else self.device
+
         # Load critic
         self.critic.load_state_dict(
-            torch.load(f"{path}/critic.pt", map_location=self.device)
+            torch.load(f"{path}/critic.pt", map_location=load_device)
         )
 
         # Load actors
         for agent_id, actor in self.actors.items():
             actor.load_state_dict(
-                torch.load(f"{path}/actor_{agent_id}.pt", map_location=self.device)
+                torch.load(f"{path}/actor_{agent_id}.pt", map_location=load_device)
             )
 
-        print_colored(f"Models loaded and ready on {self.device}", "green")
+        # Ensure models are on inference device
+        self.critic.to(load_device)
+        for actor in self.actors.values():
+            actor.to(load_device)
+
+        print_colored(f"Models loaded and ready on {load_device}", "green")

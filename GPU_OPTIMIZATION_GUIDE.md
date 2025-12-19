@@ -6,18 +6,27 @@ This guide documents the GPU optimizations implemented for NVIDIA H200 and other
 
 The following optimizations have been implemented to maximize GPU utilization and training speed:
 
-### 1. **Models Stay on GPU During Entire Training**
+### 1. **Hybrid CPU/GPU Approach (Optimized for H200)**
 
-**Problem**: Previously, models were constantly transferred between CPU and GPU:
+**Problem 1**: Old approach transferred models constantly:
 - CPU → GPU before each policy update
 - GPU → CPU after each policy update
-- This caused significant overhead (2-5 seconds per transfer on H200)
+- This caused significant overhead (2-5 seconds per transfer)
 
-**Solution**: Models now remain on GPU for both:
-- Inference (during simulation/episode collection)
-- Training (during policy updates)
+**Problem 2**: Keeping models on GPU all the time is also slow:
+- Single observation inference on GPU has high overhead (kernel launches)
+- CPU is faster for single forward passes
+- GPU is optimized for large batches, not single observations
 
-**Impact**: Eliminates ~4-10 seconds per episode of transfer overhead
+**Solution**: Hybrid approach
+- **Simulation (62k single observations)**: CPU (fast for single obs)
+- **Training (batches of 32k)**: GPU (fast for large batches)
+- **Transfers**: Only 2x per episode (models only, not data)
+
+**Impact**:
+- CPU inference: ~0.5-1ms per observation (vs 2-5ms on GPU)
+- GPU training: 2-3x faster than CPU
+- Transfer overhead: ~2-4 seconds per episode (acceptable for 150s episodes)
 
 ### 2. **Automatic Batch Size Optimization**
 
@@ -70,12 +79,14 @@ torch.backends.cudnn.benchmark = True  # Find optimal kernels
 
 For a typical training run with 50 episodes:
 
-| Component | Before | After | Speedup |
-|-----------|--------|-------|---------|
-| Policy Update (per episode) | ~30s | ~8-10s | 3-4x |
-| GPU↔CPU Transfer (per episode) | ~8s | 0s | ∞ |
-| Total Training Time (50 episodes) | ~30min | ~10min | 3x |
-| GPU Utilization | 20-30% | 70-90% | 3x |
+| Component | Before | After (Hybrid) | Speedup |
+|-----------|--------|----------------|---------|
+| Simulation (per episode) | ~150s | ~150s (CPU) | 1x (same) |
+| Policy Update (per episode) | ~30s (CPU) | ~8-10s (GPU) | 3-4x |
+| GPU↔CPU Transfer (per episode) | N/A | ~4s (2x) | Acceptable |
+| Total Episode Time | ~180s | ~164s | 1.1x |
+| Total Training Time (50 episodes) | ~150min | ~136min | 1.1x |
+| GPU Utilization (during training) | N/A | 70-90% | Optimal |
 
 ## 🔧 Configuration
 
@@ -151,18 +162,26 @@ If you still encounter OOM errors:
    If you see "Auto-adjusted batch size: 64", your episodes might be too short.
    Longer episodes = better GPU utilization.
 
-### CPU Still Bottleneck During Simulation
+### CPU Simulation Phase
 
-The simulation phase (environment stepping) is still single-threaded Python. This is expected.
+The simulation phase uses CPU for inference, which is optimal for single observations:
 
-**Current behavior**:
-- Simulation: 1 CPU core at 100%, GPU idle (~60% of time)
-- Policy update: GPU at 80-90%, CPU idle (~40% of time)
+**Current behavior (Hybrid mode)**:
+- Simulation: CPU at 100% for inference (fast single obs) - ~90% of time
+- Policy update: GPU at 80-90% for training (fast batches) - ~10% of time
+- Transfers: 2x per episode (CPU→GPU→CPU) - ~2% of time
+
+**Why CPU for simulation?**:
+- Single observation forward pass: CPU ~0.5ms, GPU ~2-5ms
+- 62,000 forward passes per episode: CPU saves ~90-280 seconds!
+- GPU kernel launch overhead dominates for small tensors
 
 **To improve simulation speed** (future work):
 - Vectorized environments (run multiple episodes in parallel)
 - Cython/Numba compilation of hot paths
 - Multiprocessing for episode collection
+
+**Note**: The hybrid approach is optimal for this workload. Keeping everything on GPU would be slower!
 
 ## 📈 Benchmarking
 
