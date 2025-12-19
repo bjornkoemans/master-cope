@@ -213,15 +213,7 @@ class MAPPOAgent:
         if len(self.buffer["obs"]) == 0:
             return
 
-        print_colored(
-            f"[{datetime.now().strftime('%H:%M:%S')}] Updating policy on {self.device}...",
-            "yellow",
-        )
         update_start_time = time.perf_counter()
-
-        # Print GPU utilization before training
-        if self.device.type == "cuda":
-            print_gpu_utilization(self.device)
 
         # Compute advantages and returns
         self.compute_advantages_and_returns()
@@ -251,12 +243,6 @@ class MAPPOAgent:
         advantages = np.array(advantages)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # Prepare data for GPU processing
-        print_colored(
-            f"[{datetime.now().strftime('%H:%M:%S')}] Preparing data for device transfer...",
-            "cyan",
-        )
-
         # Convert data to tensors and move to device
         advantages_tensor = torch.FloatTensor(advantages).to(self.device)
         returns_tensor = torch.FloatTensor(returns).to(self.device)
@@ -285,21 +271,14 @@ class MAPPOAgent:
                 self.device
             )
 
-        print_colored(
-            f"[{datetime.now().strftime('%H:%M:%S')}] Data preparation complete. Starting {self.num_epochs} epochs of training...",
-            "cyan",
-        )
-
         # Reset history before batch processing
         self.reset_history()
 
         # Perform multiple epochs of updates on GPU
+        print_colored(f"  Training for {self.num_epochs} epochs:", "cyan")
+
         for epoch in range(self.num_epochs):
             epoch_start_time = time.perf_counter()
-            print_colored(
-                f"[{datetime.now().strftime('%H:%M:%S')}] Epoch {epoch + 1}/{self.num_epochs} - Data size: {len(observations)}",
-                "blue",
-            )
 
             # Create random permutation for mini-batching
             indices = torch.randperm(len(observations), device=self.device)
@@ -310,11 +289,6 @@ class MAPPOAgent:
             total_batches = (
                 len(observations) + self.batch_size - 1
             ) // self.batch_size  # Ceiling division
-
-            print_colored(
-                f"[{datetime.now().strftime('%H:%M:%S')}] Starting {total_batches} batches of size {self.batch_size}",
-                "blue",
-            )
 
             for start_idx in range(0, len(observations), self.batch_size):
                 end_idx = min(start_idx + self.batch_size, len(observations))
@@ -527,40 +501,12 @@ class MAPPOAgent:
 
                             total_actor_losses[agent_id] += actor_loss.item()
 
-                # Print progress less frequently now that batching is optimized
-                if (
-                    num_batches % max(1, total_batches // 3) == 0
-                    or num_batches == total_batches
-                ):
-                    progress_pct = (num_batches / total_batches) * 100
-                    elapsed_time = time.perf_counter() - epoch_start_time
-                    avg_critic_loss_so_far = (
-                        total_critic_loss / num_batches if num_batches > 0 else 0
-                    )
-                    print_colored(
-                        f"[{datetime.now().strftime('%H:%M:%S')}] Epoch {epoch + 1} - "
-                        f"Batch {num_batches}/{total_batches} ({progress_pct:.1f}%) - "
-                        f"Time: {elapsed_time:.1f}s - Critic Loss: {avg_critic_loss_so_far:.6f}",
-                        "purple",
-                    )
-
             epoch_time = time.perf_counter() - epoch_start_time
             avg_critic_loss = total_critic_loss / num_batches if num_batches > 0 else 0
             print_colored(
-                f"[{datetime.now().strftime('%H:%M:%S')}] Epoch {epoch + 1} complete - "
-                f"Time: {epoch_time:.2f}s, Critic Loss: {avg_critic_loss:.6f}",
-                "green",
+                f"    Epoch {epoch + 1}/{self.num_epochs}: Loss={avg_critic_loss:.2e}, Time={epoch_time:.1f}s",
+                "white",
             )
-
-        total_update_time = time.perf_counter() - update_start_time
-        print_colored(
-            f"[{datetime.now().strftime('%H:%M:%S')}] Policy update complete - Total time: {total_update_time:.2f}s",
-            "yellow",
-        )
-
-        # Print GPU utilization after training
-        if self.device.type == "cuda":
-            print_gpu_utilization(self.device)
 
         # Clear the buffer after updating
         self.buffer = {

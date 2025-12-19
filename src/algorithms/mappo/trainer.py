@@ -158,7 +158,9 @@ class MAPPOTrainer:
 
     def train(self) -> list[float]:
         """Main training loop for MAPPO."""
-        print(f"Starting MAPPO training for {self.total_training_episodes} episodes...")
+        print_colored("=" * 80, "yellow")
+        print_colored(f"STARTING MAPPO TRAINING: {self.total_training_episodes} EPISODES", "yellow")
+        print_colored("=" * 80, "yellow")
 
         start_time = time.perf_counter()
 
@@ -169,11 +171,18 @@ class MAPPOTrainer:
             )
             os.makedirs(episode_dir, exist_ok=True)
 
+            print_colored("\n" + "=" * 80, "cyan")
+            print_colored(f"EPISODE {self.episodes_done + 1}/{self.total_training_episodes}", "cyan")
+            print_colored("=" * 80, "cyan")
+
             # Run one epoch (one complete episode)
             obs, _ = self.env.reset()
             episode_reward = 0.0  # Initialize as float
             episode_length = 0
             episode_time = time.perf_counter()
+
+            print_colored(f"\n📊 PHASE 1: SIMULATION (Collecting Experience)", "blue")
+            print_colored(f"Start time: {datetime.now().strftime('%H:%M:%S')}", "blue")
 
             # Arrays for storing episode data
             episode_actions: list[np.ndarray] = []
@@ -183,7 +192,20 @@ class MAPPOTrainer:
             episode_assigned_agents: list[int | None] = []  # Track assigned agents
 
             done = False
+            last_print_time = time.perf_counter()
+            print_interval = 2.0  # Print every 2 seconds
+
             while not done:
+                # Print progress every 2 seconds
+                current_time = time.perf_counter()
+                if current_time - last_print_time >= print_interval:
+                    elapsed = current_time - episode_time
+                    print_colored(
+                        f"  Step {episode_length:,} | Time: {elapsed:.1f}s | Reward: {episode_reward:.2f}",
+                        "purple"
+                    )
+                    last_print_time = current_time
+
                 # Select actions using the current policy
                 actions, action_probs = self.agent.select_actions(obs)
                 episode_actions.append(map_actions_to_array(actions))
@@ -233,8 +255,26 @@ class MAPPOTrainer:
                 obs = next_obs
                 self.timesteps_done += 1
 
-            # Episode completed - update policy
+            # Episode completed
+            simulation_time = time.perf_counter() - episode_time
+            print_colored(
+                f"\n✓ Simulation Complete: {episode_length:,} steps in {simulation_time:.1f}s ({episode_length/simulation_time:.1f} steps/s)",
+                "green"
+            )
+            print_colored(f"  Episode Reward: {episode_reward:.2f}", "green")
+
+            # Update policy
+            print_colored(f"\n🧠 PHASE 2: POLICY UPDATE", "blue")
+            print_colored(f"Training neural networks on {episode_length:,} timesteps of experience", "blue")
+            policy_update_start = time.perf_counter()
+
             self.agent.update_policy()
+
+            policy_update_time = time.perf_counter() - policy_update_start
+            print_colored(
+                f"\n✓ Policy Update Complete in {policy_update_time:.1f}s",
+                "green"
+            )
 
             # Log performance
             self.episode_rewards.append(episode_reward)
@@ -296,27 +336,36 @@ class MAPPOTrainer:
 
             self.episodes_done += 1
 
+            total_episode_time = time.perf_counter() - episode_time
+
+            # Print episode summary
+            print_colored("\n" + "─" * 80, "cyan")
+            print_colored(f"📈 EPISODE {self.episodes_done} SUMMARY", "cyan")
+            print_colored("─" * 80, "cyan")
+            print_colored(f"  Total Time:       {total_episode_time:.1f}s", "white")
+            print_colored(f"  └─ Simulation:    {simulation_time:.1f}s ({simulation_time/total_episode_time*100:.0f}%)", "white")
+            print_colored(f"  └─ Policy Update: {policy_update_time:.1f}s ({policy_update_time/total_episode_time*100:.0f}%)", "white")
+            print_colored(f"  Episode Reward:   {episode_reward:.2f}", "white")
+            print_colored(f"  Episode Length:   {episode_length:,} steps", "white")
+
             # Logging
             if self.episodes_done % self.log_freq_episodes == 0:
-                episode_time = time.perf_counter() - episode_time
                 avg_reward = np.mean(self.episode_rewards[-self.log_freq_episodes :])
                 avg_length = np.mean(self.episode_lengths[-self.log_freq_episodes :])
-                print(
-                    f"Episode {self.episodes_done}/{self.total_training_episodes} | "
-                    f"Episode Reward: {episode_reward:.2f} | "
-                    f"Episode Length: {episode_length} | "
-                    f"Avg. Reward: {avg_reward:.2f} | "
-                    f"Avg. Length: {avg_length:.2f} | "
-                    f"Time for episode: {episode_time:.2f} seconds"
-                )
+                print_colored(f"  Avg Reward (last {self.log_freq_episodes}): {avg_reward:.2f}", "yellow")
+                print_colored(f"  Avg Length (last {self.log_freq_episodes}): {avg_length:.2f}", "yellow")
 
             # Periodic evaluation
             if self.should_eval and self.episodes_done % self.eval_freq_episodes == 0:
+                print_colored(f"\n🎯 PHASE 3: EVALUATION", "blue")
+                print_colored(f"Testing current policy on {self.eval_episodes} episodes", "blue")
+
                 eval_reward, eval_cumulative_rewards = self.evaluate()
                 self.eval_rewards.append(eval_reward)  # type: ignore
                 self.cumulative_eval_rewards.extend(eval_cumulative_rewards)
                 print_colored(
-                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Evaluation at episode {self.episodes_done}: {eval_reward:.2f}"
+                    f"\n✓ Evaluation Complete: Average Reward = {eval_reward:.2f}",
+                    "green"
                 )
 
                 # Save evaluation results
@@ -337,7 +386,7 @@ class MAPPOTrainer:
                 if eval_reward > self.best_eval_reward:
                     self.best_eval_reward = eval_reward
                     self.agent.save_models(os.path.join(self.experiment_dir, "best"))
-                    print(f"New best model saved with reward: {eval_reward:.2f}")
+                    print_colored(f"🏆 New best model! Reward: {eval_reward:.2f}", "green")
 
             # Periodic saving (every few episodes)
             if self.episodes_done % self.save_freq_episodes == 0:
@@ -346,12 +395,21 @@ class MAPPOTrainer:
                         self.experiment_dir, f"checkpoint_{self.episodes_done}"
                     )
                 )
-                print_colored(
-                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checkpoint saved at episode {self.episodes_done}"
-                )
+                print_colored(f"💾 Checkpoint saved at episode {self.episodes_done}", "cyan")
 
         # Save final model and training summary
+        total_training_time = time.perf_counter() - start_time
+
+        print_colored("\n" + "=" * 80, "yellow")
+        print_colored("🎉 TRAINING COMPLETE!", "yellow")
+        print_colored("=" * 80, "yellow")
+        print_colored(f"Total Episodes:  {self.episodes_done}", "white")
+        print_colored(f"Total Timesteps: {self.timesteps_done:,}", "white")
+        print_colored(f"Total Time:      {total_training_time/60:.1f} minutes", "white")
+        print_colored(f"Best Eval Reward: {self.best_eval_reward:.2f}", "green")
+
         self.agent.save_models(os.path.join(self.experiment_dir, "final"))
+        print_colored(f"💾 Final model saved to: {self.experiment_dir}/final", "cyan")
 
         # Save training summary and cumulative rewards
         with open(os.path.join(self.experiment_dir, "training_summary.txt"), "w") as f:
@@ -388,32 +446,24 @@ class MAPPOTrainer:
             delimiter=";",
         )
 
-        print(
-            f"Training completed after {self.episodes_done} episodes ({self.episodes_done} episodes and {self.timesteps_done} timesteps)."
-        )
-        print(f"Total time: {(time.perf_counter() - start_time) / 60:.2f} minutes")
-
         return self.episode_rewards
 
     def evaluate(self, deterministic=True):
         """Evaluate the current policy."""
         eval_rewards = []
         eval_cumulative_rewards = []
-        print_colored(
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Evaluating MAPPO agent for {self.eval_episodes} episodes...",
-            "green",
-        )
-        for _ in range(self.eval_episodes):
+
+        for ep_idx in range(self.eval_episodes):
             print_colored(
-                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting evaluation episode {_ + 1}/{self.eval_episodes}",
-                "green",
+                f"  Eval Episode {ep_idx + 1}/{self.eval_episodes}...",
+                "cyan",
             )
             obs, _ = self.env.reset()
             done = False
             episode_reward = 0
             episode_cumulative_reward = 0
-
             iteration = 0
+            eval_start = time.perf_counter()
 
             while not done:
                 # Select actions deterministically for evaluation
@@ -429,7 +479,13 @@ class MAPPOTrainer:
                 done = any(list(dones.values()) + list(truncated.values()))
                 obs = next_obs
                 iteration += 1
+
+            eval_time = time.perf_counter() - eval_start
             eval_rewards.append(episode_reward)
+            print_colored(
+                f"    → Reward: {episode_reward:.2f} ({iteration} steps in {eval_time:.1f}s)",
+                "white"
+            )
 
         avg_reward = np.mean(eval_rewards)
         return avg_reward, eval_rewards
