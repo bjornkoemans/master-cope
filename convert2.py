@@ -1,9 +1,21 @@
 import pandas as pd
+import string
+
+# helper: generate AA, AB, ..., AZ, BA, BB, ...
+def generate_letter_codes(n):
+    letters = string.ascii_uppercase
+    codes = []
+    i = 0
+    while len(codes) < n:
+        codes.append(letters[i // 26] + letters[i % 26])
+        i += 1
+    return codes
+
 
 # load input
 df = pd.read_csv("BPI_Challenge_2012.csv")
 
-# parse timestamps (mixed precision, timezone-aware)
+# parse timestamps
 df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed", utc=True)
 
 # drop entire cases that contain missing resources
@@ -43,7 +55,6 @@ for case_id, case_df in df.groupby("case_id"):
                 "start_timestamp": start,
                 "end_timestamp": r["timestamp"],
                 "case_id": case_id,
-                "resourceId": r["resource"],
                 "resource": r["resource"],
                 "resourceCost": None
             })
@@ -52,10 +63,15 @@ for case_id, case_df in df.groupby("case_id"):
 # create dataframe
 out = pd.DataFrame(rows)
 
-# create agent ids (0..n), deterministic
+# create deterministic resource → letter-code mapping
 unique_resources = sorted(out["resource"].unique())
-resource_to_agent = {res: i for i, res in enumerate(unique_resources)}
-out["agent"] = out["resource"].map(resource_to_agent).astype(int)
+letter_codes = generate_letter_codes(len(unique_resources))
+resource_to_code = dict(zip(unique_resources, letter_codes))
+
+out["resource"] = out["resource"].map(resource_to_code)
+
+# create agent ids (0..n)
+out["agent"] = out["resource"].astype("category").cat.codes
 
 # write output
 output_path = "activity_log.csv"
@@ -63,3 +79,4 @@ out.to_csv(output_path, index=False)
 
 print(f"Written {len(out)} activity instances to {output_path}")
 print(f"Remaining cases: {out['case_id'].nunique()}")
+print(f"Unique agents: {out['agent'].nunique()}")
