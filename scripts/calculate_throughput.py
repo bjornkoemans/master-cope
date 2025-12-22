@@ -34,17 +34,20 @@ def calculate_throughput(experiment_dir):
             # Read the log file
             df = pd.read_csv(log_file)
 
-            # Get unique cases with their open and completed times
-            # Group by case_id to get one row per case
-            cases = df.groupby('case_id').first()[['case_open_time', 'case_completed_time']]
+            # Use task-level timestamps instead of case-level
+            # Group by case_id to get first task assigned and last task completed
+            cases = df.groupby('case_id').agg({
+                'task_assigned_time': 'min',  # First task assigned
+                'task_completed_time': 'max'  # Last task completed
+            })
 
             # Convert to datetime
-            cases['case_open_time'] = pd.to_datetime(cases['case_open_time'])
-            cases['case_completed_time'] = pd.to_datetime(cases['case_completed_time'])
+            cases['task_assigned_time'] = pd.to_datetime(cases['task_assigned_time'])
+            cases['task_completed_time'] = pd.to_datetime(cases['task_completed_time'])
 
             # Calculate throughput time in seconds
             cases['throughput_time'] = (
-                cases['case_completed_time'] - cases['case_open_time']
+                cases['task_completed_time'] - cases['task_assigned_time']
             ).dt.total_seconds()
 
             # Add to overall list
