@@ -27,6 +27,15 @@ def calculate_original_throughput(data_file=None):
     print(f"Total events: {len(df)}")
     print(f"Columns: {list(df.columns)}")
 
+    # Ensure we have the required columns
+    if 'case_id' not in df.columns:
+        print("Error: 'case_id' column not found")
+        return
+    if 'start_timestamp' not in df.columns or 'end_timestamp' not in df.columns:
+        print("Error: timestamp columns not found")
+        print(f"Available columns: {list(df.columns)}")
+        return
+
     # Group by case to get start and end times
     case_times = df.groupby('case_id').agg({
         'start_timestamp': 'min',  # First event start time
