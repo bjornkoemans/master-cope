@@ -1,0 +1,2210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Simulation Timeline Explorer</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f5f6f8;
+        color: #333;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      /* ── Header ── */
+      .header {
+        background: #2c3e50;
+        padding: 0 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+        height: 42px;
+        z-index: 100;
+      }
+      .header h1 {
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+        color: #fff;
+        letter-spacing: -0.2px;
+      }
+      .header .sep {
+        width: 1px;
+        height: 20px;
+        background: rgba(255,255,255,0.15);
+      }
+
+      .header-btn {
+        padding: 4px 10px;
+        border: 1px solid rgba(255,255,255,0.15);
+        background: rgba(255,255,255,0.08);
+        color: #ecf0f1;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 500;
+        transition: background 0.15s;
+      }
+      .header-btn:hover {
+        background: rgba(255,255,255,0.15);
+      }
+      .header-btn.primary {
+        background: #27ae60;
+        border-color: #27ae60;
+        color: #fff;
+        font-weight: 600;
+      }
+      .header-btn.primary:hover {
+        background: #219a52;
+      }
+      .header-btn.danger {
+        color: #e74c3c;
+      }
+
+      .remove-btn {
+        padding: 2px 7px;
+        border: 1px solid #ccc;
+        background: #fff;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 10px;
+        color: #c0392b;
+      }
+      .remove-btn:hover {
+        background: #fdecea;
+      }
+
+      .view-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        margin-left: auto;
+      }
+      .view-controls label {
+        color: #8899a6;
+        font-size: 11px;
+      }
+      .view-controls input[type="range"] {
+        width: 100px;
+        accent-color: #5dade2;
+      }
+      .view-controls .badge {
+        background: rgba(255,255,255,0.1);
+        padding: 2px 7px;
+        border-radius: 8px;
+        font-size: 10px;
+        color: #8899a6;
+        font-family: "SF Mono", monospace;
+      }
+
+      /* ── Import overlay ── */
+      .import-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        z-index: 600;
+        background: rgba(0,0,0,0.35);
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+      }
+      .import-overlay.open {
+        display: flex;
+      }
+      .import-panel {
+        background: #2c3e50;
+        border-radius: 10px;
+        box-shadow: 0 16px 56px rgba(0,0,0,0.5);
+        width: 440px;
+        padding: 0;
+        overflow: hidden;
+      }
+      .import-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px 10px;
+        background: rgba(0,0,0,0.2);
+      }
+      .import-header h2 {
+        font-size: 14px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .import-close {
+        background: none;
+        border: none;
+        color: #5dade2;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 6px;
+      }
+      .import-close:hover {
+        background: rgba(93,173,226,0.15);
+      }
+      .import-body {
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .import-step {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .import-step-num {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.1);
+        color: #8899a6;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .import-step.active .import-step-num {
+        background: #5dade2;
+        color: #fff;
+      }
+      .import-step-content {
+        flex: 1;
+        min-width: 0;
+      }
+      .import-step-label {
+        font-size: 12px;
+        color: #ecf0f1;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .import-step.done .import-step-label {
+        color: #8899a6;
+      }
+      .import-step select {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 5px;
+        background: rgba(255,255,255,0.06);
+        color: #ecf0f1;
+        font-size: 12px;
+        font-family: inherit;
+      }
+      .import-step select:disabled {
+        opacity: 0.4;
+      }
+      .import-step input[type="number"] {
+        width: 70px;
+        padding: 6px 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 5px;
+        background: rgba(255,255,255,0.06);
+        color: #ecf0f1;
+        font-size: 12px;
+        font-family: inherit;
+        text-align: center;
+      }
+      .import-file-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 14px;
+        border: 1px dashed rgba(255,255,255,0.2);
+        background: rgba(255,255,255,0.04);
+        color: #8899a6;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.15s;
+        width: 100%;
+        justify-content: center;
+      }
+      .import-file-btn:hover {
+        border-color: #5dade2;
+        color: #5dade2;
+        background: rgba(93,173,226,0.08);
+      }
+      .import-file-btn.loaded {
+        border-color: #27ae60;
+        color: #27ae60;
+        border-style: solid;
+      }
+      .import-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .import-footer {
+        padding: 10px 14px 14px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .import-add-btn {
+        padding: 8px 20px;
+        border: none;
+        background: #27ae60;
+        color: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        transition: background 0.15s;
+      }
+      .import-add-btn:hover {
+        background: #219a52;
+      }
+      .import-add-btn:disabled {
+        background: rgba(255,255,255,0.08);
+        color: #8899a6;
+        cursor: default;
+      }
+
+      /* ── Settings overlay ── */
+      .settings-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        z-index: 600;
+        background: rgba(0,0,0,0.35);
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+      }
+      .settings-overlay.open {
+        display: flex;
+      }
+      .settings-panel {
+        background: #2c3e50;
+        border-radius: 10px;
+        box-shadow: 0 16px 56px rgba(0,0,0,0.5);
+        width: 400px;
+        max-height: 85vh;
+        overflow-y: auto;
+        padding: 0;
+      }
+      .settings-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px 10px;
+        position: sticky;
+        top: 0;
+        background: rgba(0,0,0,0.2);
+        z-index: 1;
+      }
+      .settings-header h2 {
+        font-size: 14px;
+        font-weight: 700;
+        color: #fff;
+        letter-spacing: -0.2px;
+      }
+      .settings-done {
+        background: none;
+        border: none;
+        color: #5dade2;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 6px;
+      }
+      .settings-done:hover {
+        background: rgba(93,173,226,0.15);
+      }
+      .settings-group {
+        margin: 0;
+        padding: 0 14px 10px;
+      }
+      .settings-group-label {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #8899a6;
+        padding: 8px 0 4px;
+      }
+      .settings-group-desc {
+        font-size: 10px;
+        color: #8899a6;
+        padding: 4px 0 0;
+        line-height: 1.4;
+      }
+      .settings-card {
+        background: rgba(255,255,255,0.06);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .settings-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 10px;
+        min-height: 34px;
+      }
+      .settings-item + .settings-item {
+        border-top: 1px solid rgba(255,255,255,0.06);
+        margin-left: 0;
+        padding-left: 10px;
+      }
+      .settings-item-text {
+        flex: 1;
+        min-width: 0;
+      }
+      .settings-item-title {
+        font-size: 12px;
+        color: #ecf0f1;
+        line-height: 1.3;
+      }
+      .settings-item-subtitle {
+        font-size: 10px;
+        color: #8899a6;
+        line-height: 1.3;
+        margin-top: 1px;
+      }
+
+      /* Toggle switch */
+      .ios-toggle {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+        margin-left: 10px;
+      }
+      .ios-toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+        position: absolute;
+      }
+      .ios-toggle .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(255,255,255,0.15);
+        border-radius: 20px;
+        transition: background 0.25s;
+      }
+      .ios-toggle .slider::before {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 2px;
+        bottom: 2px;
+        background: #fff;
+        border-radius: 50%;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        transition: transform 0.25s;
+      }
+      .ios-toggle input:checked + .slider {
+        background: #34c759;
+      }
+      .ios-toggle input:checked + .slider::before {
+        transform: translateX(16px);
+      }
+
+      /* Segmented control */
+      .ios-segmented {
+        display: flex;
+        background: rgba(255,255,255,0.1);
+        border-radius: 5px;
+        padding: 2px;
+        flex-shrink: 0;
+        margin-left: 10px;
+      }
+      .ios-segmented label {
+        flex: 1;
+        text-align: center;
+        padding: 3px 10px;
+        font-size: 11px;
+        font-weight: 500;
+        color: #8899a6;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+      }
+      .ios-segmented input {
+        display: none;
+      }
+      .ios-segmented input:checked + span {
+        background: rgba(255,255,255,0.15);
+        border-radius: 4px;
+        display: block;
+        padding: 3px 10px;
+        font-weight: 600;
+        color: #ecf0f1;
+      }
+      .ios-segmented label span {
+        display: block;
+        padding: 3px 10px;
+        border-radius: 4px;
+      }
+
+      /* ── Main layout ── */
+      .main {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      /* ── Left: Timeline ── */
+      .timeline-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .legend-bar {
+        display: flex;
+        gap: 6px;
+        padding: 6px 16px;
+        background: #fff;
+        border-bottom: 1px solid #eee;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+        overflow-x: auto;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        cursor: pointer;
+        font-size: 10px;
+        padding: 2px 4px;
+        border-radius: 3px;
+        white-space: nowrap;
+      }
+      .legend-item:hover {
+        background: #f0f0f0;
+      }
+      .legend-item .sw {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        flex-shrink: 0;
+      }
+      .legend-item.off .sw {
+        opacity: 0.2;
+      }
+      .legend-item.off {
+        color: #bbb;
+      }
+
+      /* The scroll container is now ONLY vertical; horizontal scroll is inside each track */
+      .timeline-scroll {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      /* ── Track = one loaded timeline ── */
+      .track {
+        border-bottom: 3px solid #c0c0c0;
+      }
+      .track-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 16px;
+        background: #e8ecf1;
+        border-bottom: 1px solid #ccc;
+        position: sticky;
+        top: 0;
+        z-index: 50;
+      }
+      .track-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #2c3e50;
+      }
+      .track-stats {
+        font-size: 11px;
+        color: #666;
+      }
+
+      /* Each track has its own horizontal scroller */
+      .track-hscroll {
+        overflow-x: auto;
+        overflow-y: hidden;
+        position: relative;
+        flex: 1;
+        min-width: 0;
+      }
+
+      /* Inner: the wide content with label column + lanes */
+      .track-inner {
+        display: inline-flex;
+        flex-direction: column;
+        min-width: 100%;
+      }
+
+      .time-axis-row {
+        display: flex;
+        height: 24px;
+        background: #fafafa;
+        border-bottom: 1px solid #ddd;
+        position: sticky;
+        top: 0;
+        z-index: 40;
+      }
+      .time-axis-labels {
+        position: sticky;
+        left: 0;
+        width: 130px;
+        min-width: 130px;
+        background: #fafafa;
+        z-index: 41;
+        border-right: 1px solid #ddd;
+        display: flex;
+        align-items: center;
+        padding-left: 8px;
+        font-size: 10px;
+        color: #888;
+      }
+      .time-axis-ticks {
+        position: relative;
+      }
+      .tick {
+        position: absolute;
+        top: 0;
+        height: 100%;
+        border-left: 1px solid #ddd;
+        font-size: 9px;
+        color: #999;
+        padding: 3px 0 0 3px;
+      }
+
+      .agent-row-wrap {
+        display: flex;
+      }
+      .agent-label {
+        position: sticky;
+        left: 0;
+        width: 130px;
+        min-width: 130px;
+        z-index: 30;
+        background: #fff;
+        border-right: 2px solid #e0e0e0;
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #444;
+        flex-shrink: 0;
+      }
+      .agent-row-wrap:nth-child(even) .agent-label {
+        background: #fafafa;
+      }
+      .agent-lane {
+        position: relative;
+        height: 52px;
+        border-bottom: 1px solid #eee;
+      }
+      .agent-row-wrap:nth-child(even) .agent-lane {
+        background: rgba(0, 0, 0, 0.012);
+      }
+
+      .task-block {
+        position: absolute;
+        height: 34px;
+        top: 9px;
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 700;
+        color: #fff;
+        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        min-width: 2px;
+        transition: opacity 0.12s;
+      }
+      .task-block:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        z-index: 20 !important;
+        transform: scaleY(1.08);
+      }
+      .task-block.collab {
+        border: 2px dashed #333;
+      }
+      .task-block.dim {
+        /* opacity set dynamically via dimOpacity setting */
+      }
+
+      .wait-block {
+        position: absolute;
+        height: 34px;
+        top: 9px;
+        background: repeating-linear-gradient(
+          45deg,
+          transparent,
+          transparent 3px,
+          rgba(0, 0, 0, 0.05) 3px,
+          rgba(0, 0, 0, 0.05) 6px
+        );
+        border-radius: 4px 0 0 4px;
+        border: 1px dashed rgba(0, 0, 0, 0.12);
+        pointer-events: none;
+      }
+
+      .assign-marker {
+        position: absolute;
+        top: 0px;
+        z-index: 15;
+        font-size: 10px;
+        line-height: 1;
+        pointer-events: none;
+        user-select: none;
+        transform: translateX(-50%);
+      }
+
+      .playhead {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #e74c3c;
+        z-index: 35;
+        pointer-events: none;
+      }
+      .hoverhead {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: rgba(0,0,0,0.25);
+        z-index: 34;
+        pointer-events: none;
+        display: none;
+      }
+      .hoverhead-tip {
+        display: none;
+        position: fixed;
+        z-index: 500;
+        background: #2c3e50;
+        color: #ecf0f1;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+        pointer-events: none;
+        font-family: "SF Mono", monospace;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        transform: translateX(-50%);
+      }
+
+      /* ── Right: Queue column inside each track ── */
+      .track-body {
+        display: flex;
+      }
+      .track-queue {
+        width: 260px;
+        min-width: 260px;
+        background: #fff;
+        border-left: 2px solid #ddd;
+        flex-shrink: 0;
+        overflow-y: hidden;
+      }
+      .track-queue-header {
+        height: 24px;
+        background: #fafafa;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        align-items: center;
+        padding-left: 10px;
+        font-size: 10px;
+        color: #888;
+      }
+      .queue-agent {
+        height: 52px;
+        padding: 4px 8px;
+        border-bottom: 1px solid #eee;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+      }
+      .queue-agent:nth-child(even) {
+        background: #fafafa;
+      }
+
+      /* Status badge */
+      .queue-status-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .queue-status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+      .queue-status-badge.working {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .queue-status-badge.waiting {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .queue-status-badge.idle {
+        background: #f3f4f6;
+        color: #9ca3af;
+      }
+      .queue-current-chip {
+        display: inline-block;
+        padding: 2px 7px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        color: #fff;
+        text-shadow: 0 1px 1px rgba(0,0,0,0.2);
+        white-space: nowrap;
+      }
+      .queue-pct {
+        font-size: 10px;
+        color: #666;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Queue bar */
+      .queue-bar {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        background: #f3f4f6;
+        border-radius: 4px;
+        padding: 2px 6px;
+        min-height: 18px;
+      }
+      .queue-bar-chip {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: 700;
+        color: #fff;
+        text-shadow: 0 1px 1px rgba(0,0,0,0.2);
+        white-space: nowrap;
+      }
+      .queue-bar-empty {
+        font-size: 9px;
+        color: #bbb;
+        font-style: italic;
+      }
+      .queue-bar-label {
+        font-size: 8px;
+        color: #999;
+        flex-shrink: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+      }
+
+      /* Tooltip */
+      .tooltip {
+        display: none;
+        position: fixed;
+        z-index: 500;
+        background: #2c3e50;
+        color: #ecf0f1;
+        padding: 0;
+        border-radius: 8px;
+        font-size: 11px;
+        line-height: 1.5;
+        pointer-events: none;
+        max-width: 320px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+        overflow: hidden;
+      }
+      .tooltip.vis {
+        display: block;
+      }
+      .tooltip b {
+        color: #fff;
+      }
+      .tip-header {
+        padding: 8px 12px;
+        background: rgba(0,0,0,0.2);
+        font-weight: 700;
+        font-size: 12px;
+        color: #fff;
+      }
+      .tip-section {
+        padding: 6px 12px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+      }
+      .tip-section:first-of-type {
+        border-top: none;
+      }
+      .tip-section-label {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #8899a6;
+        margin-bottom: 2px;
+      }
+      .tip-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .tip-row .tip-key {
+        color: #8899a6;
+        flex-shrink: 0;
+      }
+      .tip-row .tip-val {
+        color: #ecf0f1;
+        text-align: right;
+      }
+
+      /* Landing */
+      .landing {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 60px 20px;
+        color: #999;
+        font-size: 14px;
+        text-align: center;
+        line-height: 2;
+      }
+      .landing code {
+        background: #e9ecef;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+      }
+
+      /* Playback bar */
+      .playback-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 16px;
+        background: #fff;
+        border-top: 1px solid #ddd;
+        flex-shrink: 0;
+      }
+      .playback-bar button {
+        padding: 4px 12px;
+        border: 1px solid #ccc;
+        background: #fff;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .playback-bar button:hover {
+        background: #f0f0f0;
+      }
+      .playback-bar button.active {
+        background: #e74c3c;
+        color: #fff;
+        border-color: #c0392b;
+      }
+      .playback-bar input[type="range"] {
+        flex: 1;
+      }
+      .playback-bar .time-display {
+        font-size: 12px;
+        font-family: "SF Mono", monospace;
+        color: #555;
+        min-width: 80px;
+      }
+      .playback-bar select {
+        font-size: 11px;
+        padding: 2px 4px;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Simulation Timeline Explorer</h1>
+      <div class="sep"></div>
+      <button class="header-btn primary" onclick="toggleImport()">+ Import</button>
+      <button class="header-btn" onclick="fitAll()">Fit All</button>
+      <button class="header-btn danger" onclick="clearAll()">Clear</button>
+      <div class="view-controls">
+        <label>Zoom</label>
+        <input
+          type="range"
+          id="zoomSlider"
+          min="0.1"
+          max="3"
+          step="0.1"
+          value="0.5"
+        />
+        <span id="zoomVal" class="badge">0.5</span>
+        <div class="sep"></div>
+        <button class="header-btn" onclick="toggleSettings()">Settings</button>
+      </div>
+    </div>
+
+    <!-- Import overlay -->
+    <div class="import-overlay" id="importOverlay" onclick="if(event.target===this)toggleImport()">
+      <div class="import-panel">
+        <div class="import-header">
+          <h2>Import Timeline</h2>
+          <button class="import-close" onclick="toggleImport()">Close</button>
+        </div>
+        <div class="import-body">
+          <div class="import-step active" id="importStep1">
+            <div class="import-step-num">1</div>
+            <div class="import-step-content">
+              <div class="import-step-label">Select results folder</div>
+              <label class="import-file-btn" id="importFileLabel">
+                <span>Browse folder...</span>
+                <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none" />
+              </label>
+            </div>
+          </div>
+          <div class="import-step" id="importStep2">
+            <div class="import-step-num">2</div>
+            <div class="import-step-content">
+              <div class="import-step-label">Choose folder & episode</div>
+              <div class="import-row">
+                <select id="folderSelect" disabled style="flex:1">
+                  <option>Load a folder first</option>
+                </select>
+              </div>
+              <div class="import-row" style="margin-top:6px;">
+                <select id="episodeSelect" disabled style="flex:1">
+                  <option>--</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="import-step" id="importStep3">
+            <div class="import-step-num">3</div>
+            <div class="import-step-content">
+              <div class="import-step-label">Max cases</div>
+              <input type="number" id="maxCases" value="20" min="1" max="9999" />
+            </div>
+          </div>
+        </div>
+        <div class="import-footer">
+          <button class="import-add-btn" id="addBtn" disabled onclick="addTrack(); toggleImport();">Add to view</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="timeline-panel" id="timelinePanel">
+        <div class="legend-bar" id="legendBar"></div>
+        <div class="timeline-scroll" id="timelineScroll">
+          <div class="landing" id="landing">
+            <div>
+              Click <b>+ Import</b> to load a results folder and add timelines.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="playback-bar" id="playbackBar" style="display: none">
+      <button id="playBtn" onclick="togglePlay()">&#9654; Play</button>
+      <input type="range" id="scrubber" min="0" max="1000" value="0" step="1" />
+      <span class="time-display" id="scrubTime">0:00</span>
+      <label style="font-size: 11px">Speed:</label>
+      <select id="speedSelect">
+        <option value="60" selected>1 min/s</option>
+        <option value="120">2 min/s</option>
+        <option value="300">5 min/s</option>
+        <option value="600">10 min/s</option>
+        <option value="1800">30 min/s</option>
+        <option value="3600">1 hr/s</option>
+      </select>
+    </div>
+
+    <!-- Settings overlay (iOS-style) -->
+    <div class="settings-overlay" id="settingsOverlay" onclick="if(event.target===this)toggleSettings()">
+      <div class="settings-panel">
+        <div class="settings-header">
+          <h2>Settings</h2>
+          <button class="settings-done" onclick="toggleSettings()">Done</button>
+        </div>
+
+        <!-- Timeline display -->
+        <div class="settings-group">
+          <div class="settings-group-label">Timeline Display</div>
+          <div class="settings-card">
+            <div class="settings-item">
+              <div class="settings-item-text">
+                <div class="settings-item-title">Waiting Blocks</div>
+                <div class="settings-item-subtitle">Show hatched area between assignment and task start</div>
+              </div>
+              <label class="ios-toggle"><input type="checkbox" id="showWait" checked /><span class="slider"></span></label>
+            </div>
+            <div class="settings-item">
+              <div class="settings-item-text">
+                <div class="settings-item-title">Assignment Markers</div>
+                <div class="settings-item-subtitle">Show ▼ ■ ▽ ◆ symbols at the moment a task is assigned</div>
+              </div>
+              <label class="ios-toggle"><input type="checkbox" id="showAssign" checked /><span class="slider"></span></label>
+            </div>
+            <div class="settings-item">
+              <div class="settings-item-text">
+                <div class="settings-item-title">Task Labels</div>
+                <div class="settings-item-subtitle">Show case and task ID inside task blocks (e.g. C0.T3)</div>
+              </div>
+              <label class="ios-toggle"><input type="checkbox" id="showLabels" checked /><span class="slider"></span></label>
+            </div>
+            <div class="settings-item">
+              <div class="settings-item-text">
+                <div class="settings-item-title">Collaboration Borders</div>
+                <div class="settings-item-subtitle">Dashed border on tasks that require multiple agents</div>
+              </div>
+              <label class="ios-toggle"><input type="checkbox" id="showCollabBorder" checked /><span class="slider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Volunteer info -->
+        <div class="settings-group">
+          <div class="settings-group-label">Volunteer Information</div>
+          <div class="settings-card">
+            <div class="settings-item">
+              <div class="settings-item-text">
+                <div class="settings-item-title">Show in Tooltip</div>
+                <div class="settings-item-subtitle">Display which agents volunteered when hovering a task</div>
+              </div>
+              <label class="ios-toggle"><input type="checkbox" id="showVolunteers" checked /><span class="slider"></span></label>
+            </div>
+            <div class="settings-item">
+              <div class="settings-item-text">
+                <div class="settings-item-title">Display Format</div>
+              </div>
+              <div class="ios-segmented">
+                <label><input type="radio" name="volFormat" id="volNames" value="names" checked /><span>Names</span></label>
+                <label><input type="radio" name="volFormat" id="volIds" value="ids" /><span>IDs</span></label>
+              </div>
+            </div>
+          </div>
+          <div class="settings-group-desc">Names show agent roles (e.g. Technician-000001). IDs show numeric identifiers (e.g. 3, 5, 7).</div>
+        </div>
+
+        <!-- Appearance -->
+        <div class="settings-group">
+          <div class="settings-group-label">Appearance</div>
+          <div class="settings-card">
+            <div class="settings-item">
+              <div class="settings-item-text">
+                <div class="settings-item-title">Compact Lanes</div>
+                <div class="settings-item-subtitle">Reduce agent row height for a denser overview</div>
+              </div>
+              <label class="ios-toggle"><input type="checkbox" id="compactMode" /><span class="slider"></span></label>
+            </div>
+            <div class="settings-item">
+              <div class="settings-item-text">
+                <div class="settings-item-title">Dim Opacity</div>
+                <div class="settings-item-subtitle">Opacity of unselected cases when isolating</div>
+              </div>
+              <div class="ios-segmented">
+                <label><input type="radio" name="dimOpacity" value="0.06" /><span>Hidden</span></label>
+                <label><input type="radio" name="dimOpacity" value="0.12" checked /><span>Faint</span></label>
+                <label><input type="radio" name="dimOpacity" value="0.3" /><span>Subtle</span></label>
+              </div>
+            </div>
+          </div>
+          <div class="settings-group-desc">Compact lanes use less vertical space per agent. Dim opacity controls how visible non-isolated cases are.</div>
+        </div>
+
+        <div style="height:16px;"></div>
+      </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+    <div class="hoverhead-tip" id="hoverTip"></div>
+
+    <script>
+      // ─── State ─────────────────────────────────────────────────────────
+      // Store loaded folders separately so multiple folders can coexist
+      let loadedFolders = []; // [{name, logFiles: {filename->content}, logNames: [filenames]}]
+      let selectedFolderIdx = -1; // index into loadedFolders
+
+      // Each track is a loaded timeline
+      let tracks = []; // [{id, title, tasks, agents, caseIds, activeCases, totalDuration}]
+      let trackIdCounter = 0;
+
+      let pxPerSecond = 0.5;
+      let globalMaxDuration = 0; // max duration across all tracks (for unified zoom)
+      let playheadTime = 0;
+      let isolatedCaseId = null; // click-to-isolate: null = show all, number = isolated case
+      let isPlaying = false;
+      let playRAF = null;
+
+      function toggleSettings() {
+        const overlay = document.getElementById("settingsOverlay");
+        overlay.classList.toggle("open");
+      }
+
+      function toggleImport() {
+        const overlay = document.getElementById("importOverlay");
+        overlay.classList.toggle("open");
+      }
+
+      function updateImportSteps() {
+        const step1 = document.getElementById("importStep1");
+        const step2 = document.getElementById("importStep2");
+        const step3 = document.getElementById("importStep3");
+        const hasFolder = loadedFolders.length > 0;
+        const hasEpisode = !document.getElementById("episodeSelect").disabled;
+
+        step1.className = "import-step" + (hasFolder ? " done" : " active");
+        step2.className = "import-step" + (hasFolder ? (hasEpisode ? " done" : " active") : "");
+        step3.className = "import-step" + (hasEpisode ? " active" : "");
+
+        // Update file button label
+        const label = document.getElementById("importFileLabel");
+        if (hasFolder) {
+          const name = loadedFolders[loadedFolders.length - 1].name;
+          label.classList.add("loaded");
+          label.querySelector("span").textContent = name + " (loaded)";
+        }
+      }
+
+      const PALETTE = [
+        "#e6194b",
+        "#3cb44b",
+        "#4363d8",
+        "#f58231",
+        "#911eb4",
+        "#42d4f4",
+        "#f032e6",
+        "#bfef45",
+        "#fabed4",
+        "#469990",
+        "#dcbeff",
+        "#9A6324",
+        "#800000",
+        "#aaffc3",
+        "#808000",
+        "#ffd8b1",
+        "#000075",
+        "#e6beff",
+        "#1abc9c",
+        "#e74c3c",
+        "#3498db",
+        "#9b59b6",
+        "#2ecc71",
+        "#e67e22",
+        "#1f618d",
+        "#c0392b",
+        "#27ae60",
+        "#8e44ad",
+        "#f39c12",
+        "#2980b9",
+      ];
+      function caseColor(id) {
+        return PALETTE[id % PALETTE.length];
+      }
+
+      function fmtTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const hrs = Math.floor(mins / 60);
+        const m = mins % 60;
+        return hrs > 0 ? `${hrs}h${String(m).padStart(2, "0")}m` : `${mins}m`;
+      }
+
+      function fmtTimePrecise(seconds) {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${String(hrs).padStart(2,"0")}:${String(mins).padStart(2,"0")}:${String(secs).padStart(2,"0")}`;
+      }
+
+      // ─── File loading ──────────────────────────────────────────────────
+      document
+        .getElementById("folderInput")
+        .addEventListener("change", async function (e) {
+          const files = Array.from(e.target.files);
+          if (files.length === 0) return;
+
+          // Detect folder name
+          const parts = files[0].webkitRelativePath.split("/");
+          const folderName = parts[0] || "unknown";
+
+          const logCsvs = files
+            .filter((f) => {
+              const p = f.webkitRelativePath.split("/");
+              return f.name.endsWith(".csv") && p.some((s) => s === "logs");
+            })
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+          if (logCsvs.length === 0) {
+            alert(
+              "No log CSV files found.\\nMake sure the folder contains a logs/ subfolder with log_*.csv files."
+            );
+            return;
+          }
+
+          const logFiles = {};
+          for (const file of logCsvs) {
+            logFiles[file.name] = await file.text();
+          }
+
+          // Try to read training_summary.txt for episode rewards
+          const summaryFile = files.find(f => f.name === "training_summary.txt");
+          let episodeRewards = {};  // {index -> reward}
+          let evalRewards = {};     // {index -> reward}
+          if (summaryFile) {
+            const text = await summaryFile.text();
+            const epMatches = text.matchAll(/Episode (\d+): (-?[\d.]+)/g);
+            for (const m of epMatches) episodeRewards[parseInt(m[1])] = parseFloat(m[2]);
+            const evMatches = text.matchAll(/Eval (\d+): (-?[\d.]+)/g);
+            for (const m of evMatches) evalRewards[parseInt(m[1])] = parseFloat(m[2]);
+          }
+
+          // Store this folder
+          const folder = {
+            name: folderName,
+            logFiles,
+            logNames: logCsvs.map((f) => f.name),
+            episodeRewards,
+            evalRewards,
+          };
+          loadedFolders.push(folder);
+          selectedFolderIdx = loadedFolders.length - 1;
+
+          // Update folder selector dropdown
+          updateFolderSelect();
+          updateEpisodeSelect();
+          updateImportSteps();
+
+          // Reset file input so the same folder can be re-selected
+          this.value = "";
+        });
+
+      function updateFolderSelect() {
+        const sel = document.getElementById("folderSelect");
+        sel.innerHTML = "";
+        loadedFolders.forEach((f, i) => {
+          const opt = document.createElement("option");
+          opt.value = i;
+          const nTrain = f.logNames.filter((n) =>
+            n.startsWith("log_train_")
+          ).length;
+          const nEval = f.logNames.filter((n) =>
+            n.startsWith("log_eval_")
+          ).length;
+          const label =
+            nTrain > 0
+              ? `${nTrain} train, ${nEval} eval`
+              : `${f.logNames.length} eps`;
+          opt.textContent = `${f.name} (${label})`;
+          sel.appendChild(opt);
+        });
+        sel.value = selectedFolderIdx;
+        sel.disabled = loadedFolders.length === 0;
+      }
+
+      document
+        .getElementById("folderSelect")
+        .addEventListener("change", function () {
+          selectedFolderIdx = parseInt(this.value);
+          updateEpisodeSelect();
+        });
+
+      function updateEpisodeSelect() {
+        const sel = document.getElementById("episodeSelect");
+        sel.innerHTML = "";
+        if (
+          selectedFolderIdx < 0 ||
+          selectedFolderIdx >= loadedFolders.length
+        ) {
+          sel.disabled = true;
+          document.getElementById("addBtn").disabled = true;
+          return;
+        }
+        const folder = loadedFolders[selectedFolderIdx];
+
+        // Separate train and eval logs, support both old (log_*.csv) and new (log_train_*.csv / log_eval_*.csv) naming
+        const trainLogs = [];
+        const evalLogs = [];
+        const otherLogs = [];
+        folder.logNames.forEach((name) => {
+          if (name.startsWith("log_train_")) trainLogs.push(name);
+          else if (name.startsWith("log_eval_")) evalLogs.push(name);
+          else otherLogs.push(name); // old format: log_YYYYMMDD_*.csv
+        });
+
+        const hasRewards = Object.keys(folder.episodeRewards).length > 0;
+        const hasEvalRewards = Object.keys(folder.evalRewards).length > 0;
+        let bestValue = -Infinity;
+        let bestOptionValue = null;
+
+        function fmtReward(r) {
+          return (r / 1000).toFixed(0) + "k";
+        }
+
+        if (trainLogs.length > 0 || otherLogs.length > 0) {
+          const logs = trainLogs.length > 0 ? trainLogs : otherLogs;
+          const label = trainLogs.length > 0 ? "Train" : "Episode";
+          logs.forEach((name, i) => {
+            const opt = document.createElement("option");
+            opt.value = name;
+            const r = folder.episodeRewards[i];
+            const rLabel = r !== undefined ? ` (${fmtReward(r)})` : "";
+            opt.textContent = `${label} ${i}${rLabel}`;
+            sel.appendChild(opt);
+            if (r !== undefined && r > bestValue) {
+              bestValue = r;
+              bestOptionValue = name;
+            }
+          });
+        }
+        if (evalLogs.length > 0) {
+          const sep = document.createElement("option");
+          sep.disabled = true;
+          sep.textContent = "── Evaluation ──";
+          sel.appendChild(sep);
+          evalLogs.forEach((name, i) => {
+            const opt = document.createElement("option");
+            opt.value = name;
+            const r = folder.evalRewards[i];
+            const rLabel = r !== undefined ? ` (${fmtReward(r)})` : "";
+            opt.textContent = `Eval ${i}${rLabel}`;
+            sel.appendChild(opt);
+            if (r !== undefined && r > bestValue) {
+              bestValue = r;
+              bestOptionValue = name;
+            }
+          });
+        }
+
+        // Auto-select best episode
+        if (bestOptionValue) sel.value = bestOptionValue;
+
+        sel.disabled = false;
+        document.getElementById("addBtn").disabled = false;
+      }
+
+      // ─── CSV Parser ────────────────────────────────────────────────────
+      function parseTS(s) {
+        s = s.trim();
+        let m = s.match(
+          /^(\d{4}-\d{2}-\d{2})\s(\d{2}:\d{2}:\d{2})(?:\.(\d+))?([\+\-]\d{2}:\d{2})?$/
+        );
+        if (m) {
+          let iso = m[1] + "T" + m[2];
+          if (m[3]) iso += "." + m[3].substring(0, 6);
+          if (m[4]) iso += m[4];
+          else iso += "Z";
+          return new Date(iso).getTime() / 1000;
+        }
+        return new Date(s).getTime() / 1000;
+      }
+
+      function parseCSV(text) {
+        const lines = text.split("\n").filter((l) => l.trim());
+        if (lines.length < 2) return [];
+        const headers = lines[0].split(",").map((h) => h.trim());
+        const rows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const vals = [];
+          let cur = "",
+            inQuote = false;
+          for (const ch of lines[i]) {
+            if (ch === '"') {
+              inQuote = !inQuote;
+            } else if (ch === "," && !inQuote) {
+              vals.push(cur.trim());
+              cur = "";
+            } else {
+              cur += ch;
+            }
+          }
+          vals.push(cur.trim());
+          const row = {};
+          headers.forEach((h, j) => (row[h] = vals[j] || ""));
+          rows.push(row);
+        }
+        return rows;
+      }
+
+      function parseEpisode(folderIdx, filename) {
+        if (folderIdx < 0 || folderIdx >= loadedFolders.length) return null;
+        const csv = loadedFolders[folderIdx].logFiles[filename];
+        if (!csv) return null;
+        const maxCases =
+          parseInt(document.getElementById("maxCases").value) || 20;
+        const rows = parseCSV(csv);
+        const tasks = [];
+        const agentSet = new Set();
+        const caseSet = new Set();
+        const agentIdToName = {}; // maps agent ID (string) -> agent name
+
+        rows.forEach((r) => {
+          const caseId = parseInt(r.case_id);
+          if (caseId >= maxCases) return;
+          const agentNames = r.task_agent_name.split(",").map((s) => s.trim());
+          const agentIds = r.task_agent_id ? r.task_agent_id.split(",").map((s) => s.trim()) : [];
+          const start = parseTS(r.task_started_time);
+          const end = parseTS(r.task_completed_time);
+          const assigned = parseTS(r.task_assigned_time);
+          const taskId = parseInt(r.task_id);
+          const nReq = parseInt(r.task_agents_required);
+
+          // Build ID→name mapping and register agents even for instant tasks
+          agentIds.forEach((id, i) => {
+            if (i < agentNames.length && id) {
+              agentIdToName[id] = agentNames[i];
+            }
+          });
+          agentNames.forEach((aname) => agentSet.add(aname));
+          caseSet.add(caseId);
+
+          // Skip rendering task blocks for instant/near-zero duration tasks
+          if (Math.abs(end - start) < 0.5) return;
+
+          // Convert volunteer IDs to names
+          const volIds = r.task_volunteers ? r.task_volunteers.split(",").map(s => s.trim()).filter(Boolean) : [];
+
+          agentNames.forEach((aname) => {
+            tasks.push({
+              caseId,
+              taskId,
+              taskName: r.task_name,
+              agent: aname,
+              start,
+              end,
+              assigned,
+              absAssigned: r.task_assigned_time.trim(),
+              absStart: r.task_started_time.trim(),
+              absEnd: r.task_completed_time.trim(),
+              waiting: Math.max(0, start - assigned),
+              isCollab: nReq > 1,
+              allAgents: agentNames.join(", "),
+              assignmentType: r.task_assignment_type || "",
+              volunteerIds: volIds,
+            });
+          });
+        });
+
+        if (tasks.length === 0) return null;
+
+        const minTime = Math.min(
+          ...tasks.map((t) => Math.min(t.start, t.assigned))
+        );
+        tasks.forEach((t) => {
+          t.start -= minTime;
+          t.end -= minTime;
+          t.assigned -= minTime;
+        });
+        const totalDuration = Math.max(...tasks.map((t) => t.end));
+        const agents = [...agentSet].sort();
+        const caseIds = [...caseSet].sort((a, b) => a - b);
+
+        return { tasks, agents, caseIds, totalDuration, agentIdToName };
+      }
+
+      // ─── Add Track ─────────────────────────────────────────────────────
+      function addTrack() {
+        const sel = document.getElementById("episodeSelect");
+        const filename = sel.value;
+        if (!filename || selectedFolderIdx < 0) return;
+
+        const folder = loadedFolders[selectedFolderIdx];
+        const parsed = parseEpisode(selectedFolderIdx, filename);
+        if (!parsed) {
+          alert("No tasks found in this episode.");
+          return;
+        }
+
+        // Use the displayed label from the dropdown (e.g. "Train 3", "Eval 1", "Episode 5")
+        const selText = sel.options[sel.selectedIndex].textContent;
+        const title = `${folder.name} — ${selText}`;
+
+        const track = {
+          id: trackIdCounter++,
+          title,
+          ...parsed,
+          activeCases: new Set(parsed.caseIds),
+        };
+        tracks.push(track);
+
+        // Update global duration
+        globalMaxDuration = Math.max(...tracks.map((t) => t.totalDuration));
+        document.getElementById("scrubber").max = Math.ceil(globalMaxDuration);
+        document.getElementById("playbackBar").style.display = "flex";
+        const landing = document.getElementById("landing");
+        if (landing) landing.style.display = "none";
+
+        buildLegend();
+        renderAll();
+        updateQueue();
+      }
+
+      function removeTrack(trackId) {
+        tracks = tracks.filter((t) => t.id !== trackId);
+        if (tracks.length === 0) {
+          globalMaxDuration = 0;
+          document.getElementById("playbackBar").style.display = "none";
+        } else {
+          globalMaxDuration = Math.max(...tracks.map((t) => t.totalDuration));
+          document.getElementById("scrubber").max =
+            Math.ceil(globalMaxDuration);
+        }
+        buildLegend();
+        renderAll();
+        updateQueue();
+      }
+
+      function clearAll() {
+        tracks = [];
+        globalMaxDuration = 0;
+        isolatedCaseId = null;
+        document.getElementById("playbackBar").style.display = "none";
+        document.getElementById("timelineScroll").innerHTML =
+          '<div class="landing" id="landing" style="display:flex;">Add timelines to compare.</div>';
+        document.getElementById("legendBar").innerHTML = "";
+      }
+
+      // ─── Legend (union of all case IDs across tracks) ──────────────────
+      function buildLegend() {
+        const bar = document.getElementById("legendBar");
+        bar.innerHTML = "";
+        const allCaseIds = new Set();
+        tracks.forEach((tr) => tr.caseIds.forEach((c) => allCaseIds.add(c)));
+        [...allCaseIds]
+          .sort((a, b) => a - b)
+          .forEach((cid) => {
+            const item = document.createElement("div");
+            item.className = "legend-item";
+            const anyActive = tracks.some((tr) => tr.activeCases.has(cid));
+            if (!anyActive) item.classList.add("off");
+            item.innerHTML = `<div class="sw" style="background:${caseColor(cid)}"></div>C${cid}`;
+            item.onclick = () => {
+              tracks.forEach((tr) => {
+                if (tr.activeCases.has(cid)) tr.activeCases.delete(cid);
+                else if (tr.caseIds.includes(cid)) tr.activeCases.add(cid);
+              });
+              const nowActive = tracks.some((tr) => tr.activeCases.has(cid));
+              item.classList.toggle("off", !nowActive);
+              renderAll();
+            };
+            bar.appendChild(item);
+          });
+        // Assignment type legend (only if any task has assignment info)
+        const hasAssignInfo = tracks.some((tr) =>
+          tr.tasks.some((t) => t.assignmentType)
+        );
+        if (hasAssignInfo) {
+          const sep = document.createElement("span");
+          sep.style.cssText = "margin:0 8px;color:#666;font-size:11px;";
+          sep.textContent = "|";
+          bar.appendChild(sep);
+          const atypes = [
+            { shape: "▼", label: "Vol(1)", desc: "Single volunteer (optimal)" },
+            { shape: "■", label: "Vol(N)", desc: "Multiple volunteers, random pick" },
+            { shape: "▽", label: "Partial", desc: "Some roles volunteer, rest fallback" },
+            { shape: "◆", label: "Fallback", desc: "No volunteers, random assignment" },
+          ];
+          atypes.forEach((at) => {
+            const item = document.createElement("span");
+            item.style.cssText = "margin:0 4px;font-size:12px;color:#555;cursor:default;";
+            item.textContent = at.shape + " " + at.label;
+            item.title = at.desc;
+            bar.appendChild(item);
+          });
+        }
+      }
+
+      // ─── Render ────────────────────────────────────────────────────────
+      function renderAll() {
+        const scroll = document.getElementById("timelineScroll");
+
+        // Save scroll positions before rebuilding DOM
+        const oldScrollPositions = [];
+        document.querySelectorAll(".track-hscroll").forEach((hs) => {
+          oldScrollPositions.push(hs.scrollLeft);
+        });
+
+        scroll.innerHTML = "";
+
+        if (tracks.length === 0) {
+          scroll.innerHTML =
+            '<div class="landing" id="landing" style="display:flex;">Add timelines to compare.</div>';
+          return;
+        }
+
+        const showWait = document.getElementById("showWait").checked;
+        const showAssign = document.getElementById("showAssign").checked;
+        const showLabels = document.getElementById("showLabels").checked;
+        const showCollabBorder = document.getElementById("showCollabBorder").checked;
+        const compactMode = document.getElementById("compactMode").checked;
+        const dimOpacity = parseFloat(document.querySelector('input[name="dimOpacity"]:checked').value);
+        const laneHeight = compactMode ? 36 : 52;
+        const blockHeight = compactMode ? 22 : 34;
+        const blockTop = compactMode ? 7 : 9;
+
+        tracks.forEach((track) => {
+          const W = track.totalDuration * pxPerSecond;
+
+          // Track container
+          const trackEl = document.createElement("div");
+          trackEl.className = "track";
+
+          // Track header with title + remove button
+          const hdr = document.createElement("div");
+          hdr.className = "track-header";
+          hdr.innerHTML = `
+            <span class="track-title">${track.title}</span>
+            <span class="track-stats">${track.tasks.length} tasks · ${track.caseIds.length} cases · ${track.agents.length} agents · ${fmtTime(track.totalDuration)}</span>
+            <button class="remove-btn" onclick="removeTrack(${track.id})">✕ Remove</button>
+        `;
+          trackEl.appendChild(hdr);
+
+          // Horizontal scroller for this track
+          const hscroll = document.createElement("div");
+          hscroll.className = "track-hscroll";
+
+          const inner = document.createElement("div");
+          inner.className = "track-inner";
+          inner.style.width = W + 130 + "px";
+
+          // Time axis
+          const axisRow = document.createElement("div");
+          axisRow.className = "time-axis-row";
+          const axisLabel = document.createElement("div");
+          axisLabel.className = "time-axis-labels";
+          axisLabel.textContent = "Agent";
+          axisRow.appendChild(axisLabel);
+          const axisTicks = document.createElement("div");
+          axisTicks.className = "time-axis-ticks";
+          axisTicks.style.width = W + "px";
+
+          let interval;
+          if (pxPerSecond > 5) interval = 60;
+          else if (pxPerSecond > 1) interval = 300;
+          else if (pxPerSecond > 0.3) interval = 600;
+          else interval = 1800;
+
+          for (let s = 0; s <= track.totalDuration; s += interval) {
+            const tick = document.createElement("div");
+            tick.className = "tick";
+            tick.style.left = s * pxPerSecond + "px";
+            tick.textContent = fmtTime(s);
+            axisTicks.appendChild(tick);
+          }
+          axisTicks.style.cursor = "pointer";
+          axisTicks.addEventListener("click", (e) => {
+            const rect = axisTicks.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            playheadTime = Math.max(0, Math.min(clickX / pxPerSecond, globalMaxDuration));
+            scrubber.value = playheadTime;
+            updatePlayheads();
+            updateQueue();
+          });
+          const trackIdForHover = track.id;
+          axisTicks.addEventListener("mousemove", (e) => {
+            const rect = axisTicks.getBoundingClientRect();
+            const hoverX = e.clientX - rect.left;
+            const hoverSec = Math.max(0, hoverX / pxPerSecond);
+            // Show all hoverheads across tracks
+            document.querySelectorAll(".hoverhead").forEach((hh) => {
+              hh.style.display = "block";
+              hh.style.left = (hoverX + 130) + "px";
+            });
+            // Show global hover tip
+            const hoverTip = document.getElementById("hoverTip");
+            hoverTip.style.display = "block";
+            hoverTip.style.left = e.clientX + "px";
+            hoverTip.style.top = (rect.bottom + 4) + "px";
+            hoverTip.textContent = fmtTimePrecise(hoverSec);
+          });
+          axisTicks.addEventListener("mouseleave", () => {
+            document.querySelectorAll(".hoverhead").forEach((hh) => {
+              hh.style.display = "none";
+            });
+            document.getElementById("hoverTip").style.display = "none";
+          });
+          axisRow.appendChild(axisTicks);
+          inner.appendChild(axisRow);
+
+          // Agent rows
+          const rowsContainer = document.createElement("div");
+          rowsContainer.style.position = "relative";
+
+          track.agents.forEach((agent) => {
+            const wrap = document.createElement("div");
+            wrap.className = "agent-row-wrap";
+
+            const label = document.createElement("div");
+            label.className = "agent-label";
+            label.textContent = agent;
+            wrap.appendChild(label);
+
+            const lane = document.createElement("div");
+            lane.className = "agent-lane";
+            lane.style.width = W + "px";
+            lane.style.height = laneHeight + "px";
+
+            const agentTasks = track.tasks.filter((t) => t.agent === agent);
+
+            // Collect assign markers to detect overlaps
+            const assignMarkers = [];
+
+            agentTasks.forEach((t) => {
+                const active = track.activeCases.has(t.caseId);
+                const isolated = isolatedCaseId !== null;
+                const isIsolated = isolated && t.caseId === isolatedCaseId;
+                const dimmed = !active || (isolated && !isIsolated);
+
+                if (showWait && t.waiting > 1 && active && !dimmed) {
+                  const wb = document.createElement("div");
+                  wb.className = "wait-block";
+                  wb.style.left = (t.start - t.waiting) * pxPerSecond + "px";
+                  wb.style.width = t.waiting * pxPerSecond + "px";
+                  wb.style.height = blockHeight + "px";
+                  wb.style.top = blockTop + "px";
+                  lane.appendChild(wb);
+                }
+
+                if (showAssign && active && !dimmed) {
+                  assignMarkers.push(t);
+                }
+
+                const block = document.createElement("div");
+                block.className =
+                  "task-block" +
+                  (t.isCollab && showCollabBorder ? " collab" : "") +
+                  (dimmed ? " dim" : "");
+                block.style.left = t.start * pxPerSecond + "px";
+                block.style.width =
+                  Math.max(2, (t.end - t.start) * pxPerSecond) + "px";
+                block.style.height = blockHeight + "px";
+                block.style.top = blockTop + "px";
+                block.style.background = caseColor(t.caseId);
+                block.style.zIndex = dimmed ? 1 : 10;
+                if (dimmed) block.style.opacity = dimOpacity;
+
+                if (showLabels) {
+                  const bw = (t.end - t.start) * pxPerSecond;
+                  if (bw > 45) block.textContent = `C${t.caseId}.T${t.taskId}`;
+                  else if (bw > 22) block.textContent = `C${t.caseId}`;
+                }
+
+                block.addEventListener("mouseenter", (e) =>
+                  showTip(e, t, track)
+                );
+                block.addEventListener("mousemove", moveTip);
+                block.addEventListener("mouseleave", hideTip);
+                block.addEventListener("click", (e) => {
+                  e.stopPropagation();
+                  if (isolatedCaseId === t.caseId) {
+                    isolatedCaseId = null; // deselect
+                  } else {
+                    isolatedCaseId = t.caseId; // isolate this case
+                  }
+                  renderAll();
+                });
+
+                lane.appendChild(block);
+              });
+
+            // Render assign markers with horizontal stacking for overlaps
+            const atShapes = {
+              volunteer_single: "▼",
+              volunteer_random: "■",
+              fallback_random: "◆",
+              volunteer_all: "▼",
+              volunteer_partial: "▽",
+              fallback_all: "◆",
+            };
+            const atLabelsMap = {
+              volunteer_single: "Single volunteer",
+              volunteer_random: "Random from volunteers",
+              fallback_random: "Fallback (no volunteers)",
+              volunteer_all: "Collab: all volunteered",
+              volunteer_partial: "Collab: partial volunteers",
+              fallback_all: "Collab: all fallback",
+            };
+            // Group by pixel position (round to nearest px)
+            const markersByPx = {};
+            assignMarkers.forEach((t) => {
+              const px = Math.round(t.assigned * pxPerSecond);
+              if (!markersByPx[px]) markersByPx[px] = [];
+              markersByPx[px].push(t);
+            });
+            Object.values(markersByPx).forEach((group) => {
+              group.forEach((t, idx) => {
+                const am = document.createElement("div");
+                am.className = "assign-marker";
+                const basePx = t.assigned * pxPerSecond;
+                am.style.left = (basePx + idx * 9) + "px";
+                am.style.color = caseColor(t.caseId);
+                am.textContent = atShapes[t.assignmentType] || "▼";
+                am.style.pointerEvents = "auto";
+                am.style.cursor = "pointer";
+                const volFormat = document.querySelector('input[name="volFormat"]:checked').value;
+                let markerVolStr = "";
+                if (t.volunteerIds && t.volunteerIds.length > 0) {
+                  if (volFormat === "names") {
+                    markerVolStr = t.volunteerIds.map(id => track.agentIdToName[id] || `Agent ${id}`).join(", ");
+                  } else {
+                    markerVolStr = t.volunteerIds.join(", ");
+                  }
+                }
+                am.title = (atLabelsMap[t.assignmentType] || t.assignmentType)
+                  + (markerVolStr ? "\nVolunteers: " + markerVolStr : "");
+                lane.appendChild(am);
+              });
+            });
+
+            // Click on empty lane area to deselect isolation
+            lane.addEventListener("click", () => {
+              if (isolatedCaseId !== null) {
+                isolatedCaseId = null;
+                renderAll();
+              }
+            });
+
+            wrap.appendChild(lane);
+            rowsContainer.appendChild(wrap);
+          });
+
+          // Playhead for this track
+          const ph = document.createElement("div");
+          ph.className = "playhead";
+          ph.dataset.trackId = track.id;
+          ph.style.left = playheadTime * pxPerSecond + 130 + "px";
+          rowsContainer.appendChild(ph);
+
+          // Hover line for this track
+          const hh = document.createElement("div");
+          hh.className = "hoverhead";
+          hh.dataset.trackId = track.id;
+          rowsContainer.appendChild(hh);
+
+          inner.appendChild(rowsContainer);
+          hscroll.appendChild(inner);
+
+          // Queue column for this track
+          const qcol = document.createElement("div");
+          qcol.className = "track-queue";
+          qcol.dataset.trackId = track.id;
+
+          // Queue header (same height as time axis)
+          const qhdr = document.createElement("div");
+          qhdr.className = "track-queue-header";
+          qhdr.textContent = "Status";
+          qcol.appendChild(qhdr);
+
+          // One queue-agent row per agent (same height as agent-lane)
+          track.agents.forEach((agent) => {
+            const qa = document.createElement("div");
+            qa.className = "queue-agent";
+            qa.style.height = laneHeight + "px";
+            qa.dataset.agent = agent;
+            qa.innerHTML = '<span class="queue-status idle">Idle</span>';
+            qcol.appendChild(qa);
+          });
+
+          const body = document.createElement("div");
+          body.className = "track-body";
+          body.appendChild(hscroll);
+          body.appendChild(qcol);
+          trackEl.appendChild(body);
+          scroll.appendChild(trackEl);
+        });
+
+        // Sync horizontal scroll across all tracks
+        const hscrolls = document.querySelectorAll(".track-hscroll");
+        hscrolls.forEach((hs) => {
+          hs.addEventListener("scroll", function () {
+            const left = this.scrollLeft;
+            hscrolls.forEach((other) => {
+              if (other !== this) other.scrollLeft = left;
+            });
+          });
+        });
+
+        // Restore scroll positions after DOM rebuild
+        hscrolls.forEach((hs, i) => {
+          if (i < oldScrollPositions.length) {
+            hs.scrollLeft = oldScrollPositions[i];
+          }
+        });
+      }
+
+      function updatePlayheads() {
+        document.querySelectorAll(".playhead").forEach((ph) => {
+          ph.style.left = playheadTime * pxPerSecond + 130 + "px";
+        });
+        document.getElementById("scrubTime").textContent =
+          fmtTime(playheadTime);
+      }
+
+      // ─── Queue (inline per track) ──────────────────────────────────────
+      function updateQueue() {
+        const t = playheadTime;
+
+        tracks.forEach((track) => {
+          const qcol = document.querySelector(`.track-queue[data-track-id="${track.id}"]`);
+          if (!qcol) return;
+
+          const qAgents = qcol.querySelectorAll(".queue-agent");
+          track.agents.forEach((agent, idx) => {
+            const qa = qAgents[idx];
+            if (!qa) return;
+
+            const agentTasks = track.tasks.filter((tk) => tk.agent === agent);
+            const current = agentTasks.find((tk) => tk.start <= t && t < tk.end);
+            const waitingTask = agentTasks.find((tk) => tk.assigned <= t && t < tk.start);
+            const queued = agentTasks
+              .filter((tk) => tk.assigned <= t && t < tk.start)
+              .sort((a, b) => a.assigned - b.assigned);
+
+            let html = "";
+
+            // Row 1: Status badge + current task chip
+            if (current) {
+              const pct = Math.min(100, ((t - current.start) / (current.end - current.start)) * 100).toFixed(0);
+              html += `<div class="queue-status-row">
+                <span class="queue-status-badge working">Working</span>
+                <span class="queue-current-chip" style="background:${caseColor(current.caseId)}">C${current.caseId}.T${current.taskId}</span>
+                <span class="queue-pct">${pct}%</span>
+              </div>`;
+            } else if (waitingTask) {
+              html += `<div class="queue-status-row">
+                <span class="queue-status-badge waiting">Waiting</span>
+                <span class="queue-current-chip" style="background:${caseColor(waitingTask.caseId)}">C${waitingTask.caseId}.T${waitingTask.taskId}</span>
+              </div>`;
+            } else {
+              html += `<div class="queue-status-row">
+                <span class="queue-status-badge idle">Idle</span>
+              </div>`;
+            }
+
+            // Row 2: Queue bar
+            if (queued.length > 0) {
+              html += `<div class="queue-bar"><span class="queue-bar-label">Queue</span>`;
+              queued.forEach((q) => {
+                html += `<span class="queue-bar-chip" style="background:${caseColor(q.caseId)}">C${q.caseId}.T${q.taskId}</span>`;
+              });
+              html += `</div>`;
+            } else {
+              html += `<div class="queue-bar"><span class="queue-bar-label">Queue</span><span class="queue-bar-empty">empty</span></div>`;
+            }
+
+            qa.innerHTML = html;
+          });
+        });
+      }
+
+      // ─── Playback ──────────────────────────────────────────────────────
+      const scrubber = document.getElementById("scrubber");
+      scrubber.addEventListener("input", () => {
+        playheadTime = parseFloat(scrubber.value);
+        updatePlayheads();
+        updateQueue();
+      });
+
+      function togglePlay() {
+        isPlaying = !isPlaying;
+        const btn = document.getElementById("playBtn");
+        btn.textContent = isPlaying ? "\u23f8 Pause" : "\u25b6 Play";
+        btn.classList.toggle("active", isPlaying);
+        if (isPlaying) {
+          lastFrameTime = performance.now();
+          playRAF = requestAnimationFrame(playTick);
+        } else {
+          cancelAnimationFrame(playRAF);
+        }
+      }
+
+      let lastFrameTime = 0;
+      function playTick(now) {
+        if (!isPlaying) return;
+        const dt = (now - lastFrameTime) / 1000;
+        lastFrameTime = now;
+        const speed = parseInt(document.getElementById("speedSelect").value);
+        playheadTime += dt * speed;
+
+        if (playheadTime >= globalMaxDuration) {
+          playheadTime = globalMaxDuration;
+          isPlaying = false;
+          document.getElementById("playBtn").textContent = "\u25b6 Play";
+          document.getElementById("playBtn").classList.remove("active");
+        }
+
+        scrubber.value = playheadTime;
+        updatePlayheads();
+        updateQueue();
+
+        if (isPlaying) playRAF = requestAnimationFrame(playTick);
+      }
+
+      // ─── Zoom ──────────────────────────────────────────────────────────
+      document
+        .getElementById("zoomSlider")
+        .addEventListener("input", function () {
+          const oldPx = pxPerSecond;
+          pxPerSecond = parseFloat(this.value);
+          document.getElementById("zoomVal").textContent =
+            pxPerSecond.toFixed(1);
+          if (tracks.length) {
+            // Save scroll positions as time offsets before re-render
+            const hscrolls = document.querySelectorAll(".track-hscroll");
+            const scrollTime = hscrolls.length > 0 ? (hscrolls[0].scrollLeft / oldPx) : 0;
+            renderAll();
+            updatePlayheads();
+            // Restore scroll positions using new zoom
+            document.querySelectorAll(".track-hscroll").forEach(hs => {
+              hs.scrollLeft = scrollTime * pxPerSecond;
+            });
+          }
+        });
+
+      function fitAll() {
+        if (tracks.length === 0) return;
+        const hscrolls = document.querySelectorAll(".track-hscroll");
+        if (hscrolls.length === 0) return;
+        const avail = hscrolls[0].clientWidth - 140;
+        pxPerSecond = Math.max(0.3, avail / globalMaxDuration);
+        document.getElementById("zoomSlider").value = Math.min(25, pxPerSecond);
+        document.getElementById("zoomVal").textContent =
+          pxPerSecond.toFixed(1);
+        renderAll();
+        updatePlayheads();
+      }
+
+      // Settings change listeners — re-render when toggled
+      ["showWait", "showAssign", "showVolunteers", "showLabels", "showCollabBorder", "compactMode"].forEach(id => {
+        document.getElementById(id).addEventListener("change", () => {
+          if (tracks.length) renderAll();
+        });
+      });
+      document.querySelectorAll('input[name="volFormat"], input[name="dimOpacity"]').forEach(r => {
+        r.addEventListener("change", () => {
+          if (tracks.length) renderAll();
+        });
+      });
+
+      // ─── Tooltip ───────────────────────────────────────────────────────
+      const tipEl = document.getElementById("tooltip");
+      function showTip(e, t, track) {
+        const dur = ((t.end - t.start) / 60).toFixed(1);
+        const wait = (t.waiting / 60).toFixed(1);
+        const atLabels = {
+          volunteer_single: "▼ Single volunteer",
+          volunteer_random: "■ Random from volunteers",
+          fallback_random: "◆ Fallback (no volunteers)",
+          volunteer_all: "▼ Collab: all volunteered",
+          volunteer_partial: "▽ Collab: partial volunteers",
+          fallback_all: "◆ Collab: all fallback",
+        };
+        const atColors = {
+          volunteer_single: "#22c55e",
+          volunteer_random: "#eab308",
+          fallback_random: "#ef4444",
+          volunteer_all: "#22c55e",
+          volunteer_partial: "#eab308",
+          fallback_all: "#ef4444",
+        };
+        const showVol = document.getElementById("showVolunteers").checked;
+        const volFormat = document.querySelector('input[name="volFormat"]:checked').value;
+
+        // Format absolute timestamp to short time (HH:MM:SS)
+        function fmtAbsTime(s) {
+          const m = s.match(/(\d{2}:\d{2}:\d{2})/);
+          return m ? m[1] : s;
+        }
+
+        // Assignment section
+        let assignHtml = "";
+        if (t.assignmentType) {
+          assignHtml = `<div class="tip-section">
+            <div class="tip-section-label">Assignment</div>
+            <div><span style="color:${atColors[t.assignmentType] || '#999'}">${atLabels[t.assignmentType] || t.assignmentType}</span></div>`;
+          if (showVol && t.volunteerIds && t.volunteerIds.length > 0) {
+            let volDisplay;
+            if (volFormat === "names") {
+              volDisplay = t.volunteerIds.map(id => track.agentIdToName[id] || `Agent ${id}`).join(", ");
+            } else {
+              volDisplay = t.volunteerIds.join(", ");
+            }
+            assignHtml += `<div style="color:#8899a6;margin-top:2px;">Volunteers: <span style="color:#ecf0f1">${volDisplay}</span></div>`;
+          }
+          assignHtml += `</div>`;
+        }
+
+        tipEl.innerHTML = `
+          <div class="tip-header">C${t.caseId}.T${t.taskId}: ${t.taskName}</div>
+          <div class="tip-section">
+            <div class="tip-section-label">Agent</div>
+            <div>${t.agent}</div>
+            ${t.isCollab ? `<div style="color:#8899a6;margin-top:2px;">Collab: <span style="color:#ecf0f1">${t.allAgents}</span></div>` : ""}
+          </div>
+          <div class="tip-section">
+            <div class="tip-section-label">Timing</div>
+            <div class="tip-row"><span class="tip-key">Assigned</span><span class="tip-val">${fmtAbsTime(t.absAssigned)}</span></div>
+            <div class="tip-row"><span class="tip-key">Start</span><span class="tip-val">${fmtAbsTime(t.absStart)}</span></div>
+            <div class="tip-row"><span class="tip-key">End</span><span class="tip-val">${fmtAbsTime(t.absEnd)}</span></div>
+            <div class="tip-row"><span class="tip-key">Duration</span><span class="tip-val">${dur} min</span></div>
+            <div class="tip-row"><span class="tip-key">Waiting</span><span class="tip-val">${wait} min</span></div>
+          </div>
+          ${assignHtml}`;
+        tipEl.classList.add("vis");
+        moveTip(e);
+      }
+      function moveTip(e) {
+        let x = e.clientX + 14,
+          y = e.clientY + 14;
+        if (x + 310 > window.innerWidth) x = e.clientX - 310;
+        if (y + 150 > window.innerHeight) y = e.clientY - 150;
+        tipEl.style.left = x + "px";
+        tipEl.style.top = y + "px";
+      }
+      function hideTip() {
+        tipEl.classList.remove("vis");
+      }
+
+      // Spacebar to toggle play/pause
+      document.addEventListener("keydown", (e) => {
+        if (e.code === "Space" && !e.target.matches("input, select, textarea")) {
+          e.preventDefault();
+          togglePlay();
+        }
+      });
+    </script>
+  </body>
+</html>

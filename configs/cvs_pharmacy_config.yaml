@@ -1,0 +1,86 @@
+# Example configuration: CVS Pharmacy
+# Multi-agent collaboration with IC3Net communication.
+# Pharmacy process runs on a fixed work schedule.
+
+experiment:
+  name: "mappo/cvs_pharmacy"
+  description: "MAPPO with collaboration and IC3Net communication on CVS Pharmacy"
+  seed: 42
+
+data:
+  input_file: "data/cvs_pharmacy/processed/cvs_pharmacy.csv"
+  train_split: 0.8
+  min_case_length: 3
+
+environment:
+  max_steps: 200000
+  max_episodes: 1000
+  work_schedule_enabled: true
+  work_start_hour: 8
+  work_end_hour: 20
+  use_agent_identity: false
+
+agent:
+  type: "mappo"
+  collaboration:
+    enabled: true
+    tasks:
+      - activity: "Pack the drugs (Production)"
+        probability: 0.4
+        required_roles: ["Technician", "Technician"]
+  communication:
+    enabled: true
+    type: "ic3net"
+    hidden_size: 256
+    n_comm_rounds: 2
+    comm_dropout: 0.0
+    gate_comm: true
+    comm_warmup_episodes: 25
+    gate_entropy_coef: 0.1
+
+reward:
+  mode: "shaped"
+  w_wait: 2.0
+  w_case: 0.0
+  w_fallback: 1.0
+  fallback_penalty: -200.0
+  w_coordination: 0.0
+  w_balance: 0.0
+  individual_rewards: true
+
+hyperparameters:
+  learning_rate: 0.0001
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  entropy_coef: 0.1
+  entropy_coef_min: 0.01
+  warmup_frac: 0.5
+  value_loss_coef: 0.5
+  max_grad_norm: 0.5
+  batch_size: 4096
+  buffer_size: 32768
+  n_epochs: 10
+  volunteer_threshold: 0.5
+  hidden_size: 256
+  use_coma: true
+
+training:
+  n_episodes: 200
+  log_freq_episodes: 1
+  save_freq_episodes: 10
+  skip_idle_steps: true
+
+evaluation:
+  eval_freq_episodes: 10
+  n_eval_episodes: 2
+
+output:
+  save_dir: "results"
+  log_tensorboard: true
+  save_checkpoints: true
+
+gpu:
+  enabled: true
+  compile_model: true
+  pin_memory: true

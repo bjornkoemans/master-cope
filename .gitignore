@@ -1,0 +1,65 @@
+__pycache__
+.mypy_cache
+models
+experiments
+.DS_Store
+*/.DS_Store
+results
+node_modules
+
+# Data — track conversion scripts, ignore data files
+data/*
+!data/cvs_pharmacy/
+!data/bpic_2012/
+!data/loan_app/
+data/cvs_pharmacy/raw/*
+data/cvs_pharmacy/intermediate/*
+data/bpic_2012/raw/*
+data/bpic_2012/intermediate/*
+data/loan_app/raw/*
+data/loan_app/intermediate/*
+
+# LogViewer build output
+LogViewer/dist/
+LogViewer/vite.config.js.timestamp-*
+Thesis/Master Thesis - Björn Koemans/build
+
+# LaTeX build artifacts
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.bbl
+*.blg
+*.lof
+*.lot
+*.nav
+*.snm
+*.vrb
+*.pdf
+
+# macOS
+.DS_Store
+
+# Editor backups and lock files
+*.bak
+*~
+.~lock.*
+
+# Excluded from public repo (kept locally)
+Thesis/
+LogViewer/
+.claude/
+AgentOptimizer/
+AgentSimulator/
+_archive/
+documentation/
+
+# Local experiment configs (only the example *_config.yaml at root are tracked)
+src/configs/bpic/
+src/configs/cvs/
+src/configs/loan_app/
+src/configs/_old/

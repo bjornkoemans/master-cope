@@ -1,0 +1,66 @@
+# Example configuration: BPIC 2012
+# Independent agents, no collaboration, no communication.
+# Continuous process — no work-schedule constraints.
+
+experiment:
+  name: "mappo/bpic_2012"
+  description: "MAPPO baseline on BPI Challenge 2012"
+  seed: 42
+
+data:
+  input_file: "data/bpic_2012/processed/bpi_challenge_2012.csv"
+  train_split: 0.8
+  min_case_length: 3
+
+environment:
+  max_steps: 200000
+  max_episodes: 1000
+  work_schedule_enabled: false
+  use_agent_identity: false
+
+agent:
+  type: "mappo"
+  collaboration:
+    enabled: false
+  communication:
+    enabled: false
+
+reward:
+  mode: "shaped"
+  w_wait: 1.0
+  w_case: 0.0
+  w_fallback: 1.0
+  fallback_penalty: -100.0
+  individual_rewards: true
+
+hyperparameters:
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  entropy_coef: 0.05
+  value_loss_coef: 0.5
+  max_grad_norm: 0.5
+  batch_size: 2048
+  buffer_size: 4096
+  hidden_size: 256
+  n_epochs: 5
+
+training:
+  n_episodes: 100
+  log_freq_episodes: 1
+  save_freq_episodes: 10
+
+evaluation:
+  eval_freq_episodes: 10
+  n_eval_episodes: 5
+
+output:
+  save_dir: "results"
+  log_tensorboard: true
+  save_checkpoints: true
+
+gpu:
+  enabled: true
+  compile_model: true
+  pin_memory: true

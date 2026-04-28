@@ -1,0 +1,81 @@
+# Example configuration: Loan Application
+# MAPPO with IC3Net communication, no collaboration.
+# Office-hours work schedule with parallel-task groups.
+
+experiment:
+  name: "mappo/loan_app"
+  description: "MAPPO with communication on Loan Application process"
+  seed: 42
+
+data:
+  input_file: "data/loan_app/processed/loan_app.csv"
+  train_split: 0.8
+  min_case_length: 3
+
+environment:
+  max_steps: 200000
+  max_episodes: 1000
+  work_schedule_enabled: true
+  work_start_hour: 7
+  work_end_hour: 15
+  use_agent_identity: false
+  parallel_tasks:
+    - group: ["Check credit history", "AML check", "Appraise property"]
+
+agent:
+  type: "mappo"
+  collaboration:
+    enabled: false
+  communication:
+    enabled: true
+    type: "ic3net"
+    hidden_size: 128
+    n_comm_rounds: 2
+    comm_dropout: 0.0
+    gate_comm: true
+
+reward:
+  mode: "shaped"
+  w_wait: 2.0
+  wait_scale: "log"
+  w_case: 0.0
+  w_fallback: 1.0
+  fallback_penalty: -100.0
+  w_balance: 0.3
+  individual_rewards: true
+  w_volunteer: 1.0
+  volunteer_bonus: 2.0
+
+hyperparameters:
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  entropy_coef: 0.2
+  entropy_coef_min: 0.02
+  warmup_frac: 0.25
+  value_loss_coef: 0.5
+  max_grad_norm: 0.5
+  batch_size: 2048
+  buffer_size: 8192
+  n_epochs: 5
+  hidden_size: 128
+
+training:
+  n_episodes: 100
+  log_freq_episodes: 1
+  save_freq_episodes: 10
+
+evaluation:
+  eval_freq_episodes: 10
+  n_eval_episodes: 5
+
+output:
+  save_dir: "results"
+  log_tensorboard: true
+  save_checkpoints: true
+
+gpu:
+  enabled: true
+  compile_model: true
+  pin_memory: true
